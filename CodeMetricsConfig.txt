@@ -1,0 +1,4 @@
+# CA1506 thresholds. The default type threshold (95) is too permissive for this
+# codebase; these values are deliberately lower and are reviewed in ADR-0002.
+CA1506(Type): 40
+CA1506(Method): 20

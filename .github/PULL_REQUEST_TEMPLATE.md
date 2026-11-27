@@ -21,5 +21,6 @@ Closes #
 - [ ] The change matches the linked issue and adds no unrequested scope.
 - [ ] `dotnet format`, build, and tests pass on the final commit.
 - [ ] New behavior has tests; a bug fix has a regression test.
-- [ ] No quality gate, warning, suppression, or test was weakened.
+- [ ] Any suppression is narrow, justified, and disclosed; no project-wide gate was weakened.
+- [ ] A project-wide analyzer or quality-gate change is a separate PR with the required justification or ADR.
 - [ ] No credentials, tokens, account data, or local paths are included.

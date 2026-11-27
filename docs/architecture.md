@@ -7,9 +7,11 @@
 The repository contains:
 
 - `src/BaboJUPulse/` — a WPF executable with no window and no product features. It is the process host that future tray and taskbar surfaces will attach to.
-- `tests/BaboJUPulse.ArchitectureTests/` — tests for repository invariants: target framework, no startup window, quality-gate settings, relative documentation links, and ignored scratch files.
+- `tests/BaboJUPulse.ArchitectureTests/` — repository and configuration invariants: target framework, no startup window, quality-gate settings, analyzer configuration, CI gates, relative documentation links, and ignored scratch files.
 
 The current executable intentionally exits after startup. When the first host lands, it will keep the process alive and own the shutdown path.
+
+Cross-assembly dependency tests are deliberately absent while the app is the only production assembly. [ADR-0002](adr/0002-static-analysis-and-architecture-enforcement.md) records the trigger and tool choice for adding them.
 
 ## Target boundaries
 

@@ -23,16 +23,16 @@ dotnet test BaboJUPulse.slnx -c Release --no-build
 ```
 
 - `dotnet format` is the formatting gate. Do not reformat unrelated files.
-- The build treats warnings as errors. Do not suppress a warning to make a change pass.
+- The build treats warnings as errors. Do not suppress a warning merely to make CI pass. A narrow, justified suppression follows the [suppression policy](CODING_STANDARDS.md#suppressions-and-exceptions).
 - `EnableWindowsTargeting` lets Linux and WSL compile the WPF project, but the app cannot run there. Runtime validation requires Windows.
 
 ## Workflow
 
 - Start from a GitHub Issue. Use a `feat/<short-name>`, `fix/<short-name>`, or `docs/<short-name>` branch.
-- Commit messages follow Conventional Commits: `<type>: <subject>`, subject at most 50 characters. The `commit-msg` hook enforces this.
+- Commit messages follow Conventional Commits: `<type>: <subject>`, subject at most 50 characters. The local `commit-msg` hook enforces this when `core.hooksPath` is configured; it is not a server-side guarantee.
 - Open a PR. CI must pass. Merge with a merge commit; squash and rebase merges are disabled.
 - Keep `main` releasable. Do not commit generated output, local settings, credentials, or `.scratch/`.
-- If a change would weaken a quality gate, change the gate deliberately in its own PR with a documented reason. Never bypass it in a feature PR.
+- A project-wide analyzer or quality-gate change is a separate PR. Weakening a gate requires an ADR and maintainer approval; never bundle it with a feature fix.
 
 ## Boundaries
 

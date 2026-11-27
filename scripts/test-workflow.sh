@@ -586,6 +586,177 @@ assert_exit 1 "validate from subdirectory"
 assert_contains "validate: repository=" "validate from subdirectory"
 assert_contains "validate: check=docs result=fail" "validate from subdirectory"
 
+# --- Validation selection, ordering, and prerequisites ----------------------
+
+dotnet_stub="$bin/dotnet"
+dotnet_log="$fixture/dotnet.log"
+cat > "$dotnet_stub" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "${STUB_DOTNET_LOG:-/dev/null}"
+command=${1:-}
+if [ "${STUB_DOTNET_FAIL:-}" = "$command" ]; then
+    exit 1
+fi
+if [ -n "${STUB_DOTNET_DIRTY_ON:-}" ] && [ "$command" = "$STUB_DOTNET_DIRTY_ON" ]; then
+    printf 'concurrent\n' > "${STUB_DOTNET_DIRTY_PATH:?}"
+fi
+if [ -n "${STUB_DOTNET_COMMIT_ON:-}" ] && [ "$command" = "$STUB_DOTNET_COMMIT_ON" ]; then
+    "${REAL_GIT:?}" -C "${STUB_DOTNET_REPO:?}" commit -q --allow-empty -m "chore: concurrent"
+fi
+exit 0
+STUB
+chmod +x "$dotnet_stub"
+export DOTNET_BIN="$dotnet_stub"
+export STUB_DOTNET_LOG="$dotnet_log"
+
+write_passing_script() {
+    local path=$1
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$path"
+    chmod +x "$path"
+}
+
+slice_fixture="$fixture/slice"
+mkdir -p "$slice_fixture/scripts"
+git init -q "$slice_fixture"
+configure_repo "$slice_fixture"
+for script in test-check-documentation.sh check-documentation.sh \
+    test-public-content.sh check-public-content.sh \
+    check-workflow-shell.sh test-workflow.sh; do
+    write_passing_script "$slice_fixture/scripts/$script"
+done
+printf 'slice fixture\n' > "$slice_fixture/file.txt"
+git -C "$slice_fixture" add .
+git -C "$slice_fixture" commit -q -m "chore: slice validation fixture"
+printf 'staged slice\n' >> "$slice_fixture/file.txt"
+git -C "$slice_fixture" add file.txt
+
+assert_check_order() {
+    local expected=$1
+    local label=$2
+    local actual
+    actual=$(sed -n 's/^validate: check=\([a-z-]*\) result=running$/\1/p' "$output" | tr '\n' ' ')
+    assert_equals "$expected" "$actual" "$label"
+}
+
+dotnet_command_count() {
+    awk -v wanted="$1" '$1 == wanted { count++ } END { print count + 0 }' "$dotnet_log"
+}
+
+dotnet_commands() {
+    awk 'NF { if (seen++) printf " "; printf "%s", $1 } END { if (seen) printf "\n" }' "$dotnet_log"
+}
+
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice
+assert_exit 2 "validate slice without profile"
+assert_contains "slice requires at least one profile" "validate slice without profile"
+
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --unknown
+assert_exit 2 "validate slice unknown argument"
+assert_contains "unknown argument: --unknown" "validate slice unknown argument"
+
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 0 "validate slice docs"
+assert_check_order "docs public-content " "validate slice docs"
+assert_contains "validate: mode=slice" "validate slice docs"
+
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice \
+    --workflow --csharp --docs --config --csharp
+assert_exit 0 "validate slice mixed union"
+assert_check_order "restore format build test policy docs public-content workflow " \
+    "validate slice mixed union"
+build_count=$(dotnet_command_count build)
+format_count=$(dotnet_command_count format)
+assert_equals "1" "$build_count" "validate slice mixed deduplicates build"
+assert_equals "1" "$format_count" "validate slice mixed deduplicates format"
+
+: > "$dotnet_log"
+export STUB_DOTNET_FAIL=build
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --config
+unset STUB_DOTNET_FAIL
+assert_exit 1 "validate slice failed build"
+assert_contains "validate: check=build result=fail" "validate slice failed build"
+assert_contains "validate: check=test result=skipped reason=prerequisite-build-failed" \
+    "validate slice failed build"
+assert_contains "validate: check=policy result=skipped reason=prerequisite-build-failed" \
+    "validate slice failed build"
+assert_contains "validate: check=public-content result=pass" "validate slice failed build"
+assert_not_contains "validate: check=test result=running" "validate slice failed build"
+assert_not_contains "validate: check=policy result=running" "validate slice failed build"
+test_count=$(dotnet_command_count test)
+assert_equals "0" "$test_count" "validate slice failed build does not run tests"
+dotnet_sequence=$(dotnet_commands)
+assert_equals "restore format build" "$dotnet_sequence" \
+    "validate slice failed build stops dependent commands"
+
+: > "$dotnet_log"
+export STUB_DOTNET_FAIL=restore
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --csharp
+unset STUB_DOTNET_FAIL
+assert_exit 1 "validate slice failed restore"
+assert_contains "validate: check=restore result=fail" "validate slice failed restore"
+assert_contains "validate: check=build result=skipped reason=prerequisite-restore-failed" \
+    "validate slice failed restore"
+assert_contains "validate: check=test result=skipped reason=prerequisite-build-skipped" \
+    "validate slice failed restore"
+assert_not_contains "validate: check=build result=running" "validate slice failed restore"
+assert_not_contains "validate: check=test result=running" "validate slice failed restore"
+dotnet_sequence=$(dotnet_commands)
+assert_equals "restore" "$dotnet_sequence" \
+    "validate slice failed restore does not run dependent commands"
+
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" targeted --test --build --build
+assert_exit 0 "validate targeted reversed duplicated flags"
+assert_check_order "restore build test " "validate targeted reversed duplicated flags"
+targeted_build_count=$(dotnet_command_count build)
+targeted_test_count=$(dotnet_command_count test)
+assert_equals "1" "$targeted_build_count" \
+    "validate targeted deduplicates build"
+assert_equals "1" "$targeted_test_count" \
+    "validate targeted runs one test"
+
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" targeted --docs --docs
+assert_exit 0 "validate targeted duplicate docs"
+assert_check_order "docs " "validate targeted duplicate docs"
+
+printf 'dirty\n' >> "$slice_fixture/file.txt"
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" full
+assert_exit 1 "validate full dirty tree"
+assert_contains "full validation requires a clean committed working tree" "validate full dirty tree"
+assert_not_contains "validate: check=restore result=running" "validate full dirty tree"
+git -C "$slice_fixture" checkout -q -- file.txt
+git -C "$slice_fixture" add file.txt
+git -C "$slice_fixture" commit -q -m "chore: complete slice fixture"
+
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" full
+assert_exit 0 "validate full clean sequence"
+assert_check_order "restore format build test policy docs public-content workflow " \
+    "validate full clean sequence"
+assert_contains "validate: dirty=no" "validate full clean sequence"
+
+export STUB_DOTNET_DIRTY_ON=test
+export STUB_DOTNET_DIRTY_PATH="$slice_fixture/concurrent.txt"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" full
+unset STUB_DOTNET_DIRTY_ON STUB_DOTNET_DIRTY_PATH
+assert_exit 3 "validate full concurrent dirty change"
+assert_contains "validate: concurrent change detected" "validate full concurrent dirty change"
+rm -f "$slice_fixture/concurrent.txt"
+
+full_base=$(git -C "$slice_fixture" rev-parse HEAD)
+export STUB_DOTNET_COMMIT_ON=test
+export STUB_DOTNET_REPO="$slice_fixture"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" full
+unset STUB_DOTNET_COMMIT_ON STUB_DOTNET_REPO
+assert_exit 3 "validate full concurrent HEAD change"
+assert_contains "validate: concurrent change detected" "validate full concurrent HEAD change"
+git -C "$slice_fixture" reset -q --hard "$full_base"
+
 # --- Merge readiness ---------------------------------------------------------
 
 merge_head="1111111111111111111111111111111111111111"

@@ -262,6 +262,7 @@ main_identity_preflight() {
     if [ -z "$path" ]; then
         return 0
     fi
+    path="$(normalize_path "$path")"
     if [ ! -d "$path" ]; then
         if [ -n "$main_worktree" ]; then
             block "local_main_worktree_missing"
@@ -270,13 +271,6 @@ main_identity_preflight() {
     fi
     if [ -n "$("$GIT_BIN" -C "$path" rev-parse --show-prefix 2>/dev/null)" ]; then
         block "local_main_worktree_not_root"
-        return 0
-    fi
-    path="$(normalize_path "$path")"
-    if [ ! -d "$path" ]; then
-        if [ -n "$main_worktree" ]; then
-            block "local_main_worktree_missing"
-        fi
         return 0
     fi
     local root_common main_common

@@ -942,6 +942,28 @@ assert_contains "cleanup: blocked=workspace_agent_query_failed" "cleanup malform
 assert_path_exists "$agent_worktree" "cleanup malformed agent state"
 assert_no_archive "cleanup malformed agent state"
 
+export STUB_PASEO_AGENTS_JSON="$(printf '[{"id":"agent-null-cwd","name":"Null cwd","status":"idle","cwd":null,"workspaceId":"wks_agent"}]\n')"
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 23 --verified-sha "$agent_head" \
+    --workspace-id wks_agent --worktree "$agent_worktree" --main-worktree "$agent_seed"
+assert_exit 1 "cleanup non-string agent field"
+assert_contains "cleanup: blocked=workspace_agent_query_failed" "cleanup non-string agent field"
+assert_path_exists "$agent_worktree" "cleanup non-string agent field"
+assert_no_archive "cleanup non-string agent field"
+
+export STUB_PASEO_AGENTS_JSON="$(printf '[{"id":"agent-escaped-name","name":"caf\\u00e9","status":"idle","cwd":"%s","workspaceId":"wks_agent"}]\n' "$agent_worktree")"
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 23 --verified-sha "$agent_head" \
+    --workspace-id wks_agent --worktree "$agent_worktree" --main-worktree "$agent_seed"
+assert_exit 1 "cleanup unrepresentable agent escape"
+assert_contains "cleanup: blocked=workspace_agent_query_failed" "cleanup unrepresentable agent escape"
+assert_path_exists "$agent_worktree" "cleanup unrepresentable agent escape"
+assert_no_archive "cleanup unrepresentable agent escape"
+
 export STUB_PASEO_AGENTS_JSON="[]"
 export STUB_PASEO_AGENTS_FAIL=1
 rm -f "$paseo_archived"
@@ -1078,6 +1100,17 @@ assert_exit 1 "cleanup incomplete workspace discovery state"
 assert_contains "cleanup: blocked=workspace_query_failed" "cleanup incomplete workspace discovery state"
 assert_path_exists "$discovery_worktree" "cleanup incomplete workspace discovery state"
 assert_no_archive "cleanup incomplete workspace discovery state"
+
+export STUB_PASEO_JSON='[{"workspaceId":"wks_discovery","cwd":null}]'
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$discovery_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 29 --verified-sha "$discovery_head" \
+    --worktree "$discovery_worktree" --main-worktree "$discovery_seed"
+assert_exit 1 "cleanup non-string workspace cwd"
+assert_contains "cleanup: blocked=workspace_query_failed" "cleanup non-string workspace cwd"
+assert_path_exists "$discovery_worktree" "cleanup non-string workspace cwd"
+assert_no_archive "cleanup non-string workspace cwd"
 
 export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_discovery","cwd":"%s/"}]' "$discovery_worktree")"
 export STUB_PASEO_AGENTS_JSON="$(printf '[\n  {\n    "id": "agent-discovery",\n    "name": "Discovery work",\n    "status": "idle",\n    "cwd": "%s",\n    "workspaceId": "wks_discovery"\n  }\n]\n' "$discovery_worktree")"

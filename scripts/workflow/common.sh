@@ -520,6 +520,8 @@ workflow_paseo_workspaces() {
                     }
                     if (code > 0 && code < 128) {
                         out = out sprintf("%c", code)
+                    } else if (code >= 128) {
+                        decode_bad = 1
                     }
                     i += 4
                 } else {
@@ -564,6 +566,7 @@ workflow_paseo_workspaces() {
         function object_field(obj, wanted,    i, c, ch, depth, key, text, j, value) {
             depth = 0
             key = ""
+            object_field_type = ""
             for (i = 1; i <= length(obj); i++) {
                 c = substr(obj, i, 1)
                 if (c == "{") {
@@ -598,6 +601,7 @@ workflow_paseo_workspaces() {
                         continue
                     }
                     if (key == wanted) {
+                        object_field_type = "string"
                         return decode(text)
                     }
                     continue
@@ -611,6 +615,7 @@ workflow_paseo_workspaces() {
                         i++
                     }
                     gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", value)
+                    object_field_type = "other"
                     return value
                 }
             }
@@ -632,14 +637,16 @@ workflow_paseo_workspaces() {
             bad = 0
             for (i = 1; i <= count; i++) {
                 id = object_field(objects[i], "workspaceId")
+                id_type = object_field_type
                 cwd = object_field(objects[i], "cwd")
-                if (id == "" || cwd == "") {
+                cwd_type = object_field_type
+                if (id == "" || cwd == "" || id_type != "string" || cwd_type != "string") {
                     bad = 1
                     continue
                 }
                 print id sep cwd sep object_field(objects[i], "project") sep object_field(objects[i], "isolation")
             }
-            if (bad) exit 2
+            if (bad || decode_bad) exit 2
         }
     '
 }
@@ -743,6 +750,8 @@ workflow_paseo_agents() {
                     }
                     if (code > 0 && code < 128) {
                         out = out sprintf("%c", code)
+                    } else if (code >= 128) {
+                        decode_bad = 1
                     }
                     i += 4
                 } else {
@@ -787,6 +796,7 @@ workflow_paseo_agents() {
         function object_field(obj, wanted,    i, c, ch, depth, key, text, j, value) {
             depth = 0
             key = ""
+            object_field_type = ""
             for (i = 1; i <= length(obj); i++) {
                 c = substr(obj, i, 1)
                 if (c == "{") {
@@ -821,6 +831,7 @@ workflow_paseo_agents() {
                         continue
                     }
                     if (key == wanted) {
+                        object_field_type = "string"
                         return decode(text)
                     }
                     continue
@@ -834,6 +845,7 @@ workflow_paseo_agents() {
                         i++
                     }
                     gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", value)
+                    object_field_type = "other"
                     return value
                 }
             }
@@ -855,13 +867,22 @@ workflow_paseo_agents() {
             bad = 0
             for (i = 1; i <= count; i++) {
                 id = object_field(objects[i], "id")
-                if (id == "") {
+                id_type = object_field_type
+                status = object_field(objects[i], "status")
+                status_type = object_field_type
+                cwd = object_field(objects[i], "cwd")
+                cwd_type = object_field_type
+                workspace = object_field(objects[i], "workspaceId")
+                workspace_type = object_field_type
+                name = object_field(objects[i], "name")
+                name_type = object_field_type
+                if (id == "" || id_type != "string" || status_type != "string" || cwd_type != "string" || workspace_type != "string" || name_type != "string") {
                     bad = 1
                     continue
                 }
-                print id sep object_field(objects[i], "status") sep object_field(objects[i], "cwd") sep object_field(objects[i], "workspaceId") sep object_field(objects[i], "name")
+                print id sep status sep cwd sep workspace sep name
             }
-            if (bad) exit 2
+            if (bad || decode_bad) exit 2
         }
     '
 }

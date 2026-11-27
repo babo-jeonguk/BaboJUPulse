@@ -44,10 +44,32 @@ documents() {
 
 sanitize_fences() {
     awk '
-        { sub(/\r$/, "") }
-        /^[[:space:]]*(```|~~~)/ { in_fence = !in_fence; print ""; next }
-        in_fence { print ""; next }
-        { print }
+        {
+            sub(/\r$/, "")
+            if (match($0, /^[ \t]*(```+|~~~+)/)) {
+                marker = substr($0, RSTART, RLENGTH)
+                sub(/^[ \t]*/, "", marker)
+                character = substr(marker, 1, 1)
+                length_marker = length(marker)
+                if (!open) {
+                    open = 1
+                    open_character = character
+                    open_length = length_marker
+                    print ""
+                    next
+                }
+                if (character == open_character && length_marker >= open_length) {
+                    open = 0
+                    print ""
+                    next
+                }
+            }
+            if (open) {
+                print ""
+                next
+            }
+            print
+        }
     ' "$1"
 }
 

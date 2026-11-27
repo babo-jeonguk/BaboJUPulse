@@ -163,7 +163,7 @@ Use the Conventional Commit style for the title when practical. Do not add label
 
 The required check is `build` on `windows-latest`. It runs restore/audit, formatting, build, tests, repository-policy tests, and public-content checks. CodeQL and dependency review are advisory unless the maintainer says otherwise.
 
-The separate `documentation` workflow runs the documentation checker, its synthetic tests, the public-content tests, and the workflow-script tests. It is not currently a branch-protection required check; the merge procedure still requires its result on the final head. Do not add path filters that could leave a required check pending.
+The separate `documentation` workflow runs the documentation checker, its synthetic tests, the public-content tests, ShellCheck over the scoped workflow scripts, and the workflow-script tests. It installs the pinned ShellCheck release and requires `jq`. It is not currently a branch-protection required check; the merge procedure still requires its result on the final head. Do not add path filters that could leave a required check pending.
 
 Use the read-only merge inspection to confirm the mechanical PR state before requesting merge:
 

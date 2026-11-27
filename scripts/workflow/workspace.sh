@@ -20,7 +20,7 @@ set -euo pipefail
 
 WORKFLOW_NAME=workspace
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-# shellcheck source=common.sh
+# shellcheck source=scripts/workflow/common.sh
 source "$script_dir/common.sh"
 
 usage() {
@@ -69,12 +69,20 @@ prepare() {
     fi
 
     local worktree
-    worktree="$(workflow_worktree_for_branch "$branch")"
-    local local_branch=no
-    local remote_sha=""
-    if workflow_branch_exists "$root" "$branch"; then
-        local_branch=yes
+    local worktree_status=0
+    worktree="$(workflow_worktree_for_branch "$branch")" || worktree_status=$?
+    if [ "$worktree_status" -ne 0 ]; then
+        workflow_die "could not read worktree registrations" 1
     fi
+    local local_branch=no
+    local branch_status=0
+    local remote_sha=""
+    workflow_branch_exists "$root" "$branch" || branch_status=$?
+    case "$branch_status" in
+        0) local_branch=yes ;;
+        1) ;;
+        *) workflow_die "could not query the local branch" 1 ;;
+    esac
     remote_sha="$(workflow_remote_branch_sha "$root" "$branch")" \
         || workflow_die "could not query the remote branch" 1
 
@@ -101,6 +109,7 @@ prepare() {
     esac
 
     workflow_require_bin GIT_BIN "$GIT_BIN"
+    workflow_require_command jq
     "$GIT_BIN" fetch origin main >/dev/null 2>&1 \
         || workflow_die "could not fetch origin/main" 1
     local base_sha
@@ -111,19 +120,33 @@ prepare() {
     local requires_tracking=no
     local clean=unknown
     local workspace_id=""
+    local content_status=0
+    local paseo_status=0
 
     if [ -n "$worktree" ]; then
         action=reuse
         mode=checkout-branch
-        if workflow_worktree_status "$worktree"; then
-            clean=yes
-        else
-            clean=no
-        fi
-        if ! workspace_id="$(workflow_paseo_workspace_id_for_cwd "$worktree")"; then
-            workspace_id=""
-            workflow_info "warning: could not query Paseo workspaces"
-        fi
+        workflow_worktree_status "$worktree" || content_status=$?
+        case "$content_status" in
+            0) clean=yes ;;
+            1) clean=no ;;
+            *)
+                clean=unknown
+                workflow_info "warning: could not read the existing worktree status"
+                ;;
+        esac
+        workspace_id="$(workflow_paseo_workspace_id_for_cwd "$worktree")" || paseo_status=$?
+        case "$paseo_status" in
+            0) ;;
+            3)
+                workspace_id=""
+                workflow_info "warning: multiple Paseo workspaces match the existing worktree"
+                ;;
+            *)
+                workspace_id=""
+                workflow_info "warning: could not query Paseo workspaces"
+                ;;
+        esac
         if [ "$clean" = no ]; then
             workflow_info "warning: existing worktree has uncommitted, untracked, or ignored content"
         fi
@@ -136,7 +159,7 @@ prepare() {
         requires_tracking=yes
     else
         action=create
-        mode=branch-off
+        mode='branch-off'
     fi
 
     printf 'workspace: repository=%s\n' "$actual_repository"
@@ -189,8 +212,12 @@ verify() {
     local root
     root="$(cd "$path" && workflow_repo_root)"
     local worktree_root
+    local prefix
     worktree_root="$(workflow_normalize_path "$path")"
-    if [ -n "$("$GIT_BIN" -C "$path" rev-parse --show-prefix)" ]; then
+    if ! prefix=$("$GIT_BIN" -C "$path" rev-parse --show-prefix 2>/dev/null); then
+        workflow_die "could not read the worktree root" 1
+    fi
+    if [ -n "$prefix" ]; then
         workflow_die "--path must be the root of the worktree, not a subdirectory" 1
     fi
 
@@ -205,7 +232,9 @@ verify() {
     fi
 
     local current_branch
-    current_branch=$("$GIT_BIN" -C "$root" branch --show-current)
+    if ! current_branch=$("$GIT_BIN" -C "$root" branch --show-current 2>/dev/null); then
+        workflow_die "could not read the worktree branch" 1
+    fi
     if [ "$current_branch" != "$branch" ]; then
         workflow_die "worktree branch is '$current_branch', expected '$branch'" 1
     fi
@@ -222,12 +251,16 @@ verify() {
 
     workflow_require_clean_tree "$root"
 
+    local head_sha
+    if ! head_sha=$("$GIT_BIN" -C "$root" rev-parse HEAD 2>/dev/null); then
+        workflow_die "could not read the worktree head" 1
+    fi
     printf 'workspace: verified=yes\n'
     printf 'workspace: repository=%s\n' "$actual_repository"
     printf 'workspace: issue=%s\n' "$issue"
     printf 'workspace: branch=%s\n' "$branch"
     printf 'workspace: base_sha=%s\n' "$base"
-    printf 'workspace: head_sha=%s\n' "$("$GIT_BIN" -C "$root" rev-parse HEAD)"
+    printf 'workspace: head_sha=%s\n' "$head_sha"
     printf 'workspace: path=%s\n' "$worktree_root"
 }
 

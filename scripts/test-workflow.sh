@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
 # Synthetic cases for the workflow entry points. Uses temporary Git repositories
 # and stubbed GitHub/Paseo commands. It never contacts GitHub or Paseo and never
-# uses private data.
+# uses private data. Git URL lookups are stubbed to keep the transports local; a
+# separate case exercises real `git remote get-url` rewrite behavior.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 fixture="$(mktemp -d)"
 output="$(mktemp)"
 trap 'rm -rf "$fixture"; rm -f "$output"' EXIT
+
+if ! command -v jq >/dev/null 2>&1; then
+    printf 'test-workflow: required command is unavailable: jq\n' >&2
+    exit 2
+fi
+if ! real_git="$(command -v git)"; then
+    printf 'test-workflow: required command is unavailable: git\n' >&2
+    exit 2
+fi
 
 passed=0
 failed=0
@@ -29,6 +39,17 @@ assert_exit() {
         ok
     else
         fail "$label: expected exit $expected, got $status"
+    fi
+}
+
+assert_equals() {
+    local expected=$1
+    local actual=$2
+    local label=$3
+    if [ "$actual" = "$expected" ]; then
+        ok
+    else
+        fail "$label: expected '$expected', got '$actual'"
     fi
 }
 
@@ -82,6 +103,73 @@ assert_no_archive() {
     fi
 }
 
+assert_remote_branch_present() {
+    local repo=$1
+    local branch=$2
+    local label=$3
+    local refs
+    refs=$(git -C "$repo" ls-remote --heads origin "$branch")
+    if [ -n "$refs" ]; then
+        ok
+    else
+        fail "$label: expected remote branch to remain: $branch"
+    fi
+}
+
+assert_remote_branch_absent() {
+    local repo=$1
+    local branch=$2
+    local label=$3
+    local refs
+    refs=$(git -C "$repo" ls-remote --heads origin "$branch")
+    if [ -z "$refs" ]; then
+        ok
+    else
+        fail "$label: expected remote branch to be absent: $branch"
+    fi
+}
+
+assert_branch_present() {
+    local repo=$1
+    local branch=$2
+    local label=$3
+    if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+        ok
+    else
+        fail "$label: expected local branch to remain: $branch"
+    fi
+}
+
+assert_branch_absent() {
+    local repo=$1
+    local branch=$2
+    local label=$3
+    if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+        fail "$label: expected local branch to be absent: $branch"
+    else
+        ok
+    fi
+}
+
+assert_head_equals() {
+    local repo=$1
+    local expected=$2
+    local label=$3
+    local actual
+    actual=$(git -C "$repo" rev-parse HEAD)
+    assert_equals "$expected" "$actual" "$label"
+}
+
+assert_main_synchronized() {
+    local repo=$1
+    local label=$2
+    local head
+    local origin
+    head=$(git -C "$repo" rev-parse HEAD)
+    origin=$(git -C "$repo" rev-parse origin/main)
+    assert_equals "$origin" "$head" "$label"
+}
+
 run_at() {
     local directory=$1
     shift
@@ -95,12 +183,14 @@ bin="$fixture/bin"
 mkdir -p "$bin"
 gh_stub="$bin/gh"
 paseo_stub="$bin/paseo"
+git_stub="$bin/git-workflow"
 gh_log="$fixture/gh.log"
 paseo_log="$fixture/paseo.log"
 paseo_archived="$fixture/paseo.archived"
 : > "$gh_log"
 : > "$paseo_log"
 export STUB_REPOSITORY="owner/repo"
+export REAL_GIT="$real_git"
 
 write_stubs() {
     cat > "$gh_stub" <<'STUB'
@@ -172,11 +262,54 @@ case "$*" in
 esac
 STUB
     chmod +x "$paseo_stub"
+
+    cat > "$git_stub" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+real_git=${REAL_GIT:?}
+if [[ " $* " == *" remote get-url "* ]]; then
+    repo=$PWD
+    previous=""
+    for arg in "$@"; do
+        if [ "$previous" = "-C" ]; then
+            repo=$arg
+            break
+        fi
+        previous=$arg
+    done
+    if [[ " $* " == *" --push "* ]]; then
+        if output=$("$real_git" -C "$repo" config --get-all remote.origin.pushurl 2>/dev/null); then
+            printf '%s\n' "$output"
+            exit 0
+        fi
+    fi
+    exec "$real_git" -C "$repo" config --get-all remote.origin.url
+fi
+if [ "${STUB_GIT_FAIL_WORKTREE:-0}" = "1" ] && [[ " $* " == *" worktree list "* ]]; then
+    exit 1
+fi
+if [ -n "${STUB_GIT_FAIL_STATUS:-}" ] && [[ " $* " == *" status "* ]]; then
+    if [[ " $* " == *"${STUB_GIT_FAIL_STATUS_PATH:-}"* ]]; then
+        if [ "$STUB_GIT_FAIL_STATUS" = "tracked" ] && [[ " $* " == *"--porcelain"* ]]; then
+            exit 1
+        fi
+        if [ "$STUB_GIT_FAIL_STATUS" = "ignored" ] && [[ " $* " == *"--ignored"* ]]; then
+            exit 1
+        fi
+    fi
+fi
+if [ -n "${STUB_RACE_ORIGIN:-}" ] && [[ " $* " == *"--force-with-lease"* && " $* " == *"--delete"* ]]; then
+    "$real_git" -C "$STUB_RACE_ORIGIN" update-ref "$STUB_RACE_REF" "$STUB_RACE_SHA"
+fi
+exec "$real_git" "$@"
+STUB
+    chmod +x "$git_stub"
 }
 write_stubs
 
 export GH_BIN="$gh_stub"
 export PASEO_BIN="$paseo_stub"
+export GIT_BIN="$git_stub"
 export STUB_GH_LOG="$gh_log"
 export STUB_PASEO_LOG="$paseo_log"
 export STUB_PASEO_ARCHIVED="$paseo_archived"
@@ -204,18 +337,122 @@ make_repository() {
     git -C "$base/seed" push -q -u origin main
 }
 
+make_branch_issue() {
+    local base=$1
+    local branch=$2
+    local content=$3
+    local seed="$base/seed"
+    local head
+    make_repository "$base"
+    git -C "$seed" checkout -q -b "$branch"
+    printf '%s\n' "$content" >> "$seed/file.txt"
+    git -C "$seed" commit -q -am "feat: $branch"
+    git -C "$seed" push -q -u origin "$branch"
+    head=$(git -C "$seed" rev-parse HEAD)
+    git -C "$seed" checkout -q main
+    printf '%s\x1f%s\n' "$seed" "$head"
+}
+
+make_merged_issue() {
+    local base=$1
+    local branch=$2
+    local content=$3
+    local add_worktree=${4:-yes}
+    local worktree_name=${5:-worktree}
+    local seed="$base/seed"
+    local head
+    local merge
+    local worktree=""
+    make_repository "$base"
+    git -C "$seed" checkout -q -b "$branch"
+    printf '%s\n' "$content" >> "$seed/file.txt"
+    git -C "$seed" commit -q -am "feat: $branch"
+    git -C "$seed" push -q -u origin "$branch"
+    head=$(git -C "$seed" rev-parse HEAD)
+    git -C "$seed" checkout -q main
+    git -C "$seed" merge -q --no-ff "$branch" -m "Merge $branch"
+    git -C "$seed" push -q origin main
+    merge=$(git -C "$seed" rev-parse HEAD)
+    git -C "$seed" reset -q --hard HEAD^1
+    if [ "$add_worktree" = yes ]; then
+        worktree="$base/$worktree_name"
+        git -C "$seed" worktree add -q "$worktree" "$branch"
+    fi
+    printf '%s\x1f%s\x1f%s\x1f%s\n' "$seed" "$head" "$merge" "$worktree"
+}
+
+pr_record() {
+    local number=$1
+    local state=$2
+    local merged_at=$3
+    local merge_sha=$4
+    local branch=$5
+    local head=$6
+    local owner=${7-owner}
+    local repo=${8-repo}
+    local base=${9:-main}
+    local url=${10:-https://example.test/pull/$number}
+    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s' \
+        "$number" "$state" "$merged_at" "$merge_sha" "$branch" "$head" \
+        "$owner" "$repo" "$base" "$url"
+}
+
+set_merged_pr() {
+    local number=$1
+    local head=$2
+    local merge=$3
+    local branch=$4
+    local owner=${5-owner}
+    local repo=${6-repo}
+    STUB_PR_RECORD="$(pr_record "$number" MERGED "2026-01-01T00:00:00Z" \
+        "$merge" "$branch" "$head" "$owner" "$repo" main \
+        "https://example.test/pull/$number")"
+    export STUB_PR_RECORD
+}
+
+paseo_workspace_record() {
+    printf '{"workspaceId":"%s","cwd":"%s"}' "$1" "$2"
+}
+
+paseo_workspace_json() {
+    local record
+    record=$(paseo_workspace_record "$1" "$2")
+    printf '[%s]' "$record"
+}
+
+set_paseo_workspace() {
+    STUB_PASEO_JSON="$(paseo_workspace_json "$1" "$2")"
+    export STUB_PASEO_JSON
+}
+
+set_paseo_json() {
+    STUB_PASEO_JSON=$1
+    export STUB_PASEO_JSON
+}
+
+paseo_agent_json() {
+    local id=$1
+    local name=$2
+    local agent_status=$3
+    local cwd=$4
+    local workspace=$5
+    printf '{"id":"%s","name":"%s","status":"%s","cwd":"%s","workspaceId":"%s"}' \
+        "$id" "$name" "$agent_status" "$cwd" "$workspace"
+}
+
+set_paseo_agents() {
+    STUB_PASEO_AGENTS_JSON=$1
+    export STUB_PASEO_AGENTS_JSON
+}
+
 # --- Workspace fixture: unmerged branch based on origin/main -----------------
 
 workspace_fixture="$fixture/workspace"
-make_repository "$workspace_fixture"
-workspace_seed="$workspace_fixture/seed"
-git -C "$workspace_seed" checkout -q -b chore/workspace-test
-printf 'work\n' >> "$workspace_seed/file.txt"
-git -C "$workspace_seed" commit -q -am "feat: workspace slice"
-git -C "$workspace_seed" push -q -u origin chore/workspace-test
-git -C "$workspace_seed" checkout -q main
+fixture_output=$(make_branch_issue "$workspace_fixture" chore/workspace-test "work")
+IFS=$'\x1f' read -r workspace_seed _ <<< "$fixture_output"
 workspace_base=$(git -C "$workspace_seed" rev-parse origin/main)
-git -C "$workspace_seed" worktree add -q "$workspace_fixture/worktree" chore/workspace-test
+workspace_worktree="$workspace_fixture/worktree"
+git -C "$workspace_seed" worktree add -q "$workspace_worktree" chore/workspace-test
 
 export STUB_REPOSITORY="owner/repo"
 export STUB_ISSUE_RECORD=$'1\x1fOPEN\x1fTest issue\x1fhttps://example.test/issues/1\x1fready-for-agent'
@@ -228,17 +465,18 @@ assert_contains "workspace: action=reuse" "workspace prepare existing"
 assert_contains "workspace: base_sha=$workspace_base" "workspace prepare existing"
 assert_contains "workspace: worktree_clean=yes" "workspace prepare existing"
 
-run_at "$workspace_fixture/worktree" "$root/scripts/workflow/workspace.sh" verify \
+run_at "$workspace_worktree" "$root/scripts/workflow/workspace.sh" verify \
     --issue 1 --branch chore/workspace-test --base "$workspace_base"
 assert_exit 0 "workspace verify"
 assert_contains "workspace: verified=yes" "workspace verify"
-assert_contains "workspace: head_sha=$(git -C "$workspace_fixture/worktree" rev-parse HEAD)" "workspace verify"
+workspace_worktree_head=$(git -C "$workspace_worktree" rev-parse HEAD)
+assert_contains "workspace: head_sha=$workspace_worktree_head" "workspace verify"
 
-printf 'dirty\n' > "$workspace_fixture/worktree/untracked.txt"
-run_at "$workspace_fixture/worktree" "$root/scripts/workflow/workspace.sh" verify \
+printf 'dirty\n' > "$workspace_worktree/untracked.txt"
+run_at "$workspace_worktree" "$root/scripts/workflow/workspace.sh" verify \
     --issue 1 --branch chore/workspace-test --base "$workspace_base"
 assert_exit 1 "workspace verify dirty"
-rm -f "$workspace_fixture/worktree/untracked.txt"
+rm -f "$workspace_worktree/untracked.txt"
 
 export STUB_ISSUE_RECORD=$'1\x1fOPEN\x1fTest issue\x1fhttps://example.test/issues/1\x1fneeds-triage'
 run_at "$workspace_seed" "$root/scripts/workflow/workspace.sh" prepare \
@@ -259,6 +497,43 @@ assert_exit 2 "workspace prepare invalid branch"
 
 run_at "$workspace_seed" "$root/scripts/workflow/workspace.sh" prepare --issue
 assert_exit 2 "workspace prepare missing value"
+
+# --- Effective remote URLs (real Git rewrites) ------------------------------
+
+remote_fixture="$fixture/remote-urls"
+remote_repo="$remote_fixture/repo"
+mkdir -p "$remote_repo"
+git init -q "$remote_repo"
+configure_repo "$remote_repo"
+git -C "$remote_repo" config remote.origin.url "https://github.com/owner/repo.git"
+git -C "$remote_repo" config "url.git@github.com:owner/repo.git.insteadOf" \
+    "https://github.com/owner/repo.git"
+
+fetch_url=$(GIT_BIN="$real_git" bash -c \
+    'source "$1/scripts/workflow/common.sh"; workflow_remote_urls "$2" origin fetch' \
+    _ "$root" "$remote_repo")
+assert_equals "git@github.com:owner/repo.git" "$fetch_url" "effective fetch URL rewrite"
+
+push_url=$(GIT_BIN="$real_git" bash -c \
+    'source "$1/scripts/workflow/common.sh"; workflow_remote_urls "$2" origin push' \
+    _ "$root" "$remote_repo")
+assert_equals "git@github.com:owner/repo.git" "$push_url" "push URL falls back to fetch"
+
+git -C "$remote_repo" config remote.origin.pushurl "https://github.com/other/repo.git"
+push_url=$(GIT_BIN="$real_git" bash -c \
+    'source "$1/scripts/workflow/common.sh"; workflow_remote_urls "$2" origin push' \
+    _ "$root" "$remote_repo")
+assert_equals "https://github.com/other/repo.git" "$push_url" "effective push URL"
+
+git -C "$remote_repo" config --unset "url.git@github.com:owner/repo.git.insteadOf"
+git -C "$remote_repo" config --unset remote.origin.pushurl
+git -C "$remote_repo" remote set-url origin "https://github.com/owner/repo.git"
+git -C "$remote_repo" remote set-url --add origin "https://github.com/owner/other.git"
+urls=$(GIT_BIN="$real_git" bash -c \
+    'source "$1/scripts/workflow/common.sh"; workflow_remote_urls "$2" origin fetch' \
+    _ "$root" "$remote_repo")
+url_count=$(printf '%s\n' "$urls" | wc -l | tr -d ' ')
+assert_equals "2" "$url_count" "multiple effective fetch URLs"
 
 # --- Review range ------------------------------------------------------------
 
@@ -317,7 +592,8 @@ merge_head="1111111111111111111111111111111111111111"
 merge_other="2222222222222222222222222222222222222222"
 export STUB_REPOSITORY="owner/repo"
 export STUB_PR_STATE="MERGED"
-export STUB_PR_RECORD=$'7\x1fOPEN\x1ffalse\x1fmain\x1f1111111111111111111111111111111111111111\x1fchore/merge-test\x1fowner\x1frepo\x1fMERGEABLE\x1fCLEAN\x1fhttps://example.test/pull/7'
+STUB_PR_RECORD=$(printf '7\x1fOPEN\x1ffalse\x1fmain\x1f%s\x1fchore/merge-test\x1fowner\x1frepo\x1fMERGEABLE\x1fCLEAN\x1fhttps://example.test/pull/7' "$merge_head")
+export STUB_PR_RECORD
 export STUB_CHECKS=$'build\x1fSUCCESS\x1fpass\ndocumentation\x1fSUCCESS\x1fpass\n'
 export STUB_CHECKS_EXIT=0
 : > "$gh_log"
@@ -374,9 +650,6 @@ assert_not_contains "merge: check=documentation result=allowed-missing" "merge i
 
 export STUB_CHECKS=$'build\x1fSUCCESS\x1fpass\ndocumentation\x1fSUCCESS\x1fpass\n'
 export STUB_CHECKS_EXIT=0
-
-export STUB_CHECKS=$'build\x1fSUCCESS\x1fpass\ndocumentation\x1fSUCCESS\x1fpass\n'
-export STUB_CHECKS_EXIT=0
 : > "$gh_log"
 run_at "$fixture" "$root/scripts/workflow/merge.sh" execute \
     --pr 7 --verified-sha "$merge_head"
@@ -402,25 +675,13 @@ assert_not_contains "merge: result=ready" "merge inspect rejects delete branch"
 # --- Cleanup fixture: merged branch, worktree, and workspace -----------------
 
 cleanup_fixture="$fixture/cleanup"
-make_repository "$cleanup_fixture"
-cleanup_seed="$cleanup_fixture/seed"
-git -C "$cleanup_seed" checkout -q -b chore/cleanup-test
-printf 'cleanup work\n' >> "$cleanup_seed/file.txt"
-git -C "$cleanup_seed" commit -q -am "feat: cleanup slice"
-git -C "$cleanup_seed" push -q -u origin chore/cleanup-test
-cleanup_head=$(git -C "$cleanup_seed" rev-parse HEAD)
-git -C "$cleanup_seed" checkout -q main
-git -C "$cleanup_seed" merge -q --no-ff chore/cleanup-test -m "Merge cleanup-test"
-git -C "$cleanup_seed" push -q origin main
-cleanup_merge=$(git -C "$cleanup_seed" rev-parse HEAD)
-git -C "$cleanup_seed" reset -q --hard HEAD^1
-cleanup_worktree="$cleanup_fixture/worktree"
-git -C "$cleanup_seed" worktree add -q "$cleanup_worktree" chore/cleanup-test
+fixture_output=$(make_merged_issue "$cleanup_fixture" chore/cleanup-test "cleanup work")
+IFS=$'\x1f' read -r cleanup_seed cleanup_head cleanup_merge cleanup_worktree <<< "$fixture_output"
 
 export STUB_REPOSITORY="owner/repo"
 export STUB_PR_STATE="MERGED"
-export STUB_PR_RECORD="$(printf '8\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/cleanup-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/8' "$cleanup_merge" "$cleanup_head")"
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_cleanup","cwd":"%s"}]' "$cleanup_worktree")"
+set_merged_pr 8 "$cleanup_head" "$cleanup_merge" chore/cleanup-test
+set_paseo_workspace wks_cleanup "$cleanup_worktree"
 rm -f "$paseo_archived"
 : > "$paseo_log"
 
@@ -445,11 +706,7 @@ run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
     --workspace-id wks_cleanup --worktree "$cleanup_worktree/subdirectory" --main-worktree "$cleanup_seed"
 assert_exit 1 "cleanup subdirectory target"
 assert_contains "cleanup: blocked=worktree_path_not_root" "cleanup subdirectory target"
-if [ -d "$cleanup_worktree" ]; then
-    ok
-else
-    fail "cleanup removed a worktree targeted through a subdirectory"
-fi
+assert_path_exists "$cleanup_worktree" "cleanup subdirectory target"
 rmdir "$cleanup_worktree/subdirectory"
 
 mkdir -p "$cleanup_seed/main-subdirectory"
@@ -466,11 +723,7 @@ run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
     --workspace-id wks_cleanup --worktree "$wrong_worktree" --main-worktree "$cleanup_seed"
 assert_exit 1 "cleanup wrong worktree"
 assert_contains "cleanup: blocked=worktree_path_mismatch" "cleanup wrong worktree"
-if [ -d "$wrong_worktree" ]; then
-    ok
-else
-    fail "cleanup inspect removed a mismatched worktree"
-fi
+assert_path_exists "$wrong_worktree" "cleanup wrong worktree"
 git -C "$cleanup_seed" worktree remove "$wrong_worktree"
 git -C "$cleanup_seed" branch -d chore/wrong-worktree >/dev/null
 
@@ -489,26 +742,29 @@ assert_exit 1 "cleanup workspace id mismatch"
 assert_contains "cleanup: blocked=workspace_id_mismatch" "cleanup workspace id mismatch"
 
 wrong_cwd="$cleanup_fixture/other-worktree"
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_cleanup","cwd":"%s"}]' "$wrong_cwd")"
+set_paseo_workspace wks_cleanup "$wrong_cwd"
 run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
     --pr 8 --verified-sha "$cleanup_head" \
     --workspace-id wks_cleanup --worktree "$cleanup_worktree" --main-worktree "$cleanup_seed"
 assert_exit 1 "cleanup workspace cwd mismatch"
 assert_contains "cleanup: blocked=workspace_cwd_mismatch" "cleanup workspace cwd mismatch"
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_cleanup","cwd":"%s"}]' "$cleanup_worktree")"
+set_paseo_workspace wks_cleanup "$cleanup_worktree"
 
 run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
     --pr 8 --workspace-id 'wks_bad.*'
 assert_exit 2 "cleanup invalid workspace id"
 
-export STUB_PR_RECORD="$(printf '15\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fmain\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/15' "$cleanup_merge" "$cleanup_head")"
+STUB_PR_RECORD="$(pr_record 15 MERGED "2026-01-01T00:00:00Z" \
+    "$cleanup_merge" main "$cleanup_head")"
+export STUB_PR_RECORD
 run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
     --pr 15 --branch main
 assert_exit 1 "cleanup main branch"
 assert_contains "refusing to clean up the default or base branch" "cleanup main branch"
-export STUB_PR_RECORD="$(printf '8\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/cleanup-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/8' "$cleanup_merge" "$cleanup_head")"
+set_merged_pr 8 "$cleanup_head" "$cleanup_merge" chore/cleanup-test
 
-export STUB_PASEO_AGENTS_JSON="$(printf '[\n  {\n    "id": "agent-idle",\n    "name": "Finished issue work",\n    "status": "idle",\n    "cwd": "%s",\n    "workspaceId": "wks_cleanup"\n  }\n]\n' "$cleanup_worktree")"
+idle_agent="[$(paseo_agent_json agent-idle "Finished issue work" idle "$cleanup_worktree" wks_cleanup)]"
+set_paseo_agents "$idle_agent"
 run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --pr 8 --verified-sha "$cleanup_head" \
     --workspace-id wks_cleanup --worktree "$cleanup_worktree" --main-worktree "$cleanup_seed"
@@ -519,28 +775,12 @@ assert_contains "cleanup: workspace=archived" "cleanup execute"
 assert_contains "cleanup: worktree=removed" "cleanup execute"
 assert_contains "cleanup: local_branch=deleted" "cleanup execute"
 assert_contains "cleanup: result=pass" "cleanup execute"
-export STUB_PASEO_AGENTS_JSON="[]"
+set_paseo_agents "[]"
 
-if [ -z "$(git -C "$cleanup_seed" ls-remote --heads origin chore/cleanup-test)" ]; then
-    ok
-else
-    fail "cleanup did not delete the merged remote branch"
-fi
-if [ ! -d "$cleanup_worktree" ]; then
-    ok
-else
-    fail "cleanup left the worktree directory"
-fi
-if ! git -C "$cleanup_seed" show-ref --verify --quiet refs/heads/chore/cleanup-test; then
-    ok
-else
-    fail "cleanup left the merged local branch"
-fi
-if [ "$(git -C "$cleanup_seed" rev-parse HEAD)" = "$(git -C "$cleanup_seed" rev-parse origin/main)" ]; then
-    ok
-else
-    fail "cleanup did not synchronize local main"
-fi
+assert_remote_branch_absent "$cleanup_seed" chore/cleanup-test "cleanup execute"
+assert_path_missing "$cleanup_worktree" "cleanup execute"
+assert_branch_absent "$cleanup_seed" chore/cleanup-test "cleanup execute"
+assert_main_synchronized "$cleanup_seed" "cleanup execute"
 
 run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --pr 8 --verified-sha "$cleanup_head" \
@@ -550,7 +790,9 @@ assert_contains "cleanup: local_branch=absent" "cleanup idempotent"
 assert_contains "cleanup: worktree=absent" "cleanup idempotent"
 assert_contains "cleanup: result=pass" "cleanup idempotent"
 
-export STUB_PR_RECORD=$'13\x1fOPEN\x1f\x1f\x1fchore/open-test\x1f1111111111111111111111111111111111111111\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/13'
+STUB_PR_RECORD="$(pr_record 13 OPEN "" "" chore/open-test \
+    1111111111111111111111111111111111111111)"
+export STUB_PR_RECORD
 run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect --pr 13
 assert_exit 1 "cleanup open pr fields"
 assert_contains "cleanup: base=main head=chore/open-test" "cleanup open pr fields"
@@ -558,36 +800,24 @@ assert_contains "cleanup: merge_commit= merged_at=" "cleanup open pr fields"
 
 # A workspace supplied when the worktree is already absent must still match the
 # supplied target path before it is archived.
-export STUB_PR_RECORD="$(printf '8\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/cleanup-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/8' "$cleanup_merge" "$cleanup_head")"
+set_merged_pr 8 "$cleanup_head" "$cleanup_merge" chore/cleanup-test
 rm -f "$paseo_archived"
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_other","cwd":"%s"}]' "$cleanup_fixture/elsewhere")"
+set_paseo_workspace wks_other "$cleanup_fixture/elsewhere"
 run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
     --pr 8 --workspace-id wks_other --worktree "$cleanup_worktree" --main-worktree "$cleanup_seed"
 assert_exit 1 "cleanup absent worktree workspace cwd"
 assert_contains "cleanup: blocked=workspace_cwd_mismatch" "cleanup absent worktree workspace cwd"
-
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_cleanup","cwd":"%s"}]' "$cleanup_worktree")"
+set_paseo_workspace wks_cleanup "$cleanup_worktree"
 
 # --- Cleanup safety: dirty worktree and fork branch --------------------------
 
 dirty_fixture="$fixture/dirty"
-make_repository "$dirty_fixture"
-dirty_seed="$dirty_fixture/seed"
-git -C "$dirty_seed" checkout -q -b chore/dirty-test
-printf 'dirty work\n' >> "$dirty_seed/file.txt"
-git -C "$dirty_seed" commit -q -am "feat: dirty slice"
-git -C "$dirty_seed" push -q -u origin chore/dirty-test
-dirty_head=$(git -C "$dirty_seed" rev-parse HEAD)
-git -C "$dirty_seed" checkout -q main
-git -C "$dirty_seed" merge -q --no-ff chore/dirty-test -m "Merge dirty-test"
-git -C "$dirty_seed" push -q origin main
-dirty_merge=$(git -C "$dirty_seed" rev-parse HEAD)
-dirty_worktree="$dirty_fixture/worktree"
-git -C "$dirty_seed" worktree add -q "$dirty_worktree" chore/dirty-test
+fixture_output=$(make_merged_issue "$dirty_fixture" chore/dirty-test "dirty work")
+IFS=$'\x1f' read -r dirty_seed dirty_head dirty_merge dirty_worktree <<< "$fixture_output"
 printf 'local note\n' > "$dirty_worktree/untracked.txt"
 
-export STUB_PR_RECORD="$(printf '9\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/dirty-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/9' "$dirty_merge" "$dirty_head")"
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_dirty","cwd":"%s"}]' "$dirty_worktree")"
+set_merged_pr 9 "$dirty_head" "$dirty_merge" chore/dirty-test
+set_paseo_workspace wks_dirty "$dirty_worktree"
 rm -f "$paseo_archived"
 
 run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" execute \
@@ -595,38 +825,47 @@ run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
 assert_exit 1 "cleanup dirty worktree"
 assert_contains "cleanup: blocked=worktree_has_local_content" "cleanup dirty worktree"
-if [ -d "$dirty_worktree" ]; then
-    ok
-else
-    fail "cleanup removed a dirty worktree"
-fi
-if git -C "$dirty_seed" show-ref --verify --quiet refs/heads/chore/dirty-test; then
-    ok
-else
-    fail "cleanup deleted a branch whose worktree was retained"
-fi
+assert_path_exists "$dirty_worktree" "cleanup dirty worktree"
+assert_branch_present "$dirty_seed" chore/dirty-test "cleanup dirty worktree"
 
-export STUB_PR_RECORD="$(printf '10\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/cleanup-test\x1f%s\x1ffork-owner\x1frepo\x1fmain\x1fhttps://example.test/pull/10' "$cleanup_merge" "$cleanup_head")"
-rm -f "$paseo_archived"
-run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
-    --pr 10 --verified-sha "$cleanup_head"
-assert_exit 0 "cleanup fork retention"
-assert_contains "cleanup: same_repository=no" "cleanup fork retention"
-
-# The fork scenario uses an already cleaned repository, so the remote branch is
-# already absent. Assert the retained-fork path directly with a live branch.
+# A merged same-name local branch belongs to a fork PR's head branch. It must be
+# retained with its worktree and workspace, while the independently safe local
+# main synchronization still runs.
 rm -f "$dirty_worktree/untracked.txt"
 git -C "$dirty_seed" push -q origin chore/dirty-test
-export STUB_PR_RECORD="$(printf '11\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/dirty-test\x1f%s\x1ffork-owner\x1frepo\x1fmain\x1fhttps://example.test/pull/11' "$dirty_merge" "$dirty_head")"
-run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" inspect \
-    --pr 11 --verified-sha "$dirty_head" --branch chore/dirty-test --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
-assert_exit 0 "cleanup fork live branch"
-assert_contains "cleanup: remote_branch=retained reason=external_fork" "cleanup fork live branch"
-if [ -n "$(git -C "$dirty_seed" ls-remote --heads origin chore/dirty-test)" ]; then
-    ok
-else
-    fail "cleanup deleted a fork branch"
-fi
+set_merged_pr 11 "$dirty_head" "$dirty_merge" chore/dirty-test fork-owner repo
+set_paseo_workspace wks_dirty "$dirty_worktree"
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 11 --verified-sha "$dirty_head" \
+    --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
+assert_exit 0 "cleanup fork same-name branch"
+assert_contains "cleanup: same_repository=no" "cleanup fork same-name branch"
+assert_contains "cleanup: remote_branch=retained reason=external_fork" "cleanup fork same-name branch"
+assert_contains "cleanup: worktree=retained reason=external_fork" "cleanup fork same-name branch"
+assert_contains "cleanup: workspace=retained reason=external_fork" "cleanup fork same-name branch"
+assert_contains "cleanup: local_branch=retained reason=external_fork" "cleanup fork same-name branch"
+assert_contains "cleanup: local_main=" "cleanup fork same-name branch"
+assert_contains "cleanup: result=pass" "cleanup fork same-name branch"
+assert_remote_branch_present "$dirty_seed" chore/dirty-test "cleanup fork same-name branch"
+assert_path_exists "$dirty_worktree" "cleanup fork same-name branch"
+assert_branch_present "$dirty_seed" chore/dirty-test "cleanup fork same-name branch"
+assert_no_archive "cleanup fork same-name branch"
+
+# An empty head repository is unverified identity, not the local repository.
+set_merged_pr 31 "$dirty_head" "$dirty_merge" chore/dirty-test "" ""
+run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 31 --verified-sha "$dirty_head" \
+    --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
+assert_exit 0 "cleanup unverified head repository"
+assert_contains "cleanup: same_repository=no" "cleanup unverified head repository"
+assert_contains "cleanup: worktree=retained reason=external_fork" "cleanup unverified head repository"
+assert_contains "cleanup: local_branch=retained reason=external_fork" "cleanup unverified head repository"
+assert_remote_branch_present "$dirty_seed" chore/dirty-test "cleanup unverified head repository"
+assert_path_exists "$dirty_worktree" "cleanup unverified head repository"
+assert_branch_present "$dirty_seed" chore/dirty-test "cleanup unverified head repository"
+assert_no_archive "cleanup unverified head repository"
 
 # A merge commit that is not on the default branch must stop cleanup before any
 # destructive step.
@@ -635,16 +874,13 @@ printf 'unmerged\n' >> "$dirty_seed/file.txt"
 git -C "$dirty_seed" commit -q -am "feat: unmerged"
 unmerged_sha=$(git -C "$dirty_seed" rev-parse HEAD)
 git -C "$dirty_seed" checkout -q main
-export STUB_PR_RECORD="$(printf '12\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/dirty-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/12' "$unmerged_sha" "$dirty_head")"
+set_merged_pr 12 "$dirty_head" "$unmerged_sha" chore/dirty-test
 run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" inspect \
-    --pr 12 --verified-sha "$dirty_head" --branch chore/dirty-test --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
+    --pr 12 --verified-sha "$dirty_head" --branch chore/dirty-test \
+    --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
 assert_exit 1 "cleanup unverified merge"
 assert_contains "cleanup: blocked=merge_commit_not_on_main" "cleanup unverified merge"
-if [ -n "$(git -C "$dirty_seed" ls-remote --heads origin chore/dirty-test)" ]; then
-    ok
-else
-    fail "cleanup deleted a remote branch before verifying the merge"
-fi
+assert_remote_branch_present "$dirty_seed" chore/dirty-test "cleanup unverified merge"
 
 # Meaningful ignored content under a broad output name is retained even when
 # build-output removal is requested. Standard bin/obj output can be removed only
@@ -652,13 +888,13 @@ fi
 printf 'bin/\nobj/\nTestResults/\nartifacts/\n' >> "$dirty_seed/.git/info/exclude"
 mkdir -p "$dirty_worktree/bin"
 printf 'non-build note\n' > "$dirty_worktree/bin/important.txt"
-export STUB_PR_RECORD="$(printf '14\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/dirty-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/14' "$dirty_merge" "$dirty_head")"
+set_merged_pr 14 "$dirty_head" "$dirty_merge" chore/dirty-test
 run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" inspect \
     --pr 14 --verified-sha "$dirty_head" \
     --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
 assert_exit 1 "cleanup ignored content default"
 assert_contains "cleanup: blocked=worktree_has_local_content" "cleanup ignored content default"
-rm -rf "$dirty_worktree/bin"
+rm -rf "${dirty_worktree:?}/bin"
 
 mkdir -p "$dirty_worktree/bin"
 printf 'meaningful note\n' > "$dirty_worktree/bin/important.txt"
@@ -669,13 +905,9 @@ run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
 assert_exit 1 "cleanup meaningful bin content with output flag"
 assert_contains "cleanup: blocked=worktree_has_local_content" "cleanup meaningful bin content with output flag"
-if [ -f "$dirty_worktree/bin/important.txt" ]; then
-    ok
-else
-    fail "cleanup deleted meaningful content inside a conventionally generated directory"
-fi
+assert_path_exists "$dirty_worktree/bin/important.txt" "cleanup meaningful bin content with output flag"
 assert_no_archive "cleanup meaningful bin content with output flag"
-rm -rf "$dirty_worktree/bin"
+rm -rf "${dirty_worktree:?}/bin"
 
 mkdir -p "$dirty_worktree/obj"
 printf 'meaningful json\n' > "$dirty_worktree/obj/notes.json"
@@ -686,13 +918,9 @@ run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
 assert_exit 1 "cleanup meaningful obj content"
 assert_contains "cleanup: blocked=worktree_has_local_content" "cleanup meaningful obj content"
-if [ -f "$dirty_worktree/obj/notes.json" ]; then
-    ok
-else
-    fail "cleanup deleted meaningful content under obj"
-fi
+assert_path_exists "$dirty_worktree/obj/notes.json" "cleanup meaningful obj content"
 assert_no_archive "cleanup meaningful obj content"
-rm -rf "$dirty_worktree/obj"
+rm -rf "${dirty_worktree:?}/obj"
 
 mkdir -p "$dirty_worktree/TestResults"
 printf 'meaningful test note\n' > "$dirty_worktree/TestResults/notes.txt"
@@ -703,13 +931,9 @@ run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
 assert_exit 1 "cleanup meaningful test results content"
 assert_contains "cleanup: blocked=worktree_has_local_content" "cleanup meaningful test results content"
-if [ -f "$dirty_worktree/TestResults/notes.txt" ]; then
-    ok
-else
-    fail "cleanup deleted meaningful content under TestResults"
-fi
+assert_path_exists "$dirty_worktree/TestResults/notes.txt" "cleanup meaningful test results content"
 assert_no_archive "cleanup meaningful test results content"
-rm -rf "$dirty_worktree/TestResults"
+rm -rf "${dirty_worktree:?}/TestResults"
 
 mkdir -p "$dirty_worktree/artifacts"
 printf 'important\n' > "$dirty_worktree/artifacts/important.txt"
@@ -719,12 +943,8 @@ run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" inspect \
     --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
 assert_exit 1 "cleanup meaningful ignored content"
 assert_contains "cleanup: blocked=worktree_has_local_content" "cleanup meaningful ignored content"
-if [ -f "$dirty_worktree/artifacts/important.txt" ]; then
-    ok
-else
-    fail "cleanup deleted meaningful ignored content"
-fi
-rm -rf "$dirty_worktree/artifacts"
+assert_path_exists "$dirty_worktree/artifacts/important.txt" "cleanup meaningful ignored content"
+rm -rf "${dirty_worktree:?}/artifacts"
 
 mkdir -p "$dirty_worktree/bin" "$dirty_worktree/obj" "$dirty_worktree/TestResults"
 printf 'binary\n' > "$dirty_worktree/bin/output.dll"
@@ -736,36 +956,20 @@ run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" execute \
 assert_exit 0 "cleanup ignored build output"
 assert_contains "cleanup: worktree=removed" "cleanup ignored build output"
 assert_contains "cleanup: result=pass" "cleanup ignored build output"
-if [ ! -d "$dirty_worktree" ]; then
-    ok
-else
-    fail "cleanup retained a worktree with only reproducible output"
-fi
+assert_path_missing "$dirty_worktree" "cleanup ignored build output"
 
 # --- Cleanup safety: local branch ancestry before any destructive step ------
 
 unmerged_local_fixture="$fixture/unmerged-local"
-make_repository "$unmerged_local_fixture"
-unmerged_local_seed="$unmerged_local_fixture/seed"
-git -C "$unmerged_local_seed" checkout -q -b chore/late-test
-printf 'late work\n' >> "$unmerged_local_seed/file.txt"
-git -C "$unmerged_local_seed" commit -q -am "feat: late work"
-git -C "$unmerged_local_seed" push -q -u origin chore/late-test
-late_head=$(git -C "$unmerged_local_seed" rev-parse HEAD)
-git -C "$unmerged_local_seed" checkout -q main
-git -C "$unmerged_local_seed" merge -q --no-ff chore/late-test -m "Merge late-test"
-git -C "$unmerged_local_seed" push -q origin main
-late_merge=$(git -C "$unmerged_local_seed" rev-parse HEAD)
-git -C "$unmerged_local_seed" reset -q --hard HEAD^1
-late_worktree="$unmerged_local_fixture/worktree"
-git -C "$unmerged_local_seed" worktree add -q "$late_worktree" chore/late-test
+fixture_output=$(make_merged_issue "$unmerged_local_fixture" chore/late-test "late work")
+IFS=$'\x1f' read -r unmerged_local_seed late_head late_merge late_worktree <<< "$fixture_output"
 printf 'after merge\n' >> "$late_worktree/file.txt"
 git -C "$late_worktree" commit -q -am "feat: unmerged local work"
 late_tip=$(git -C "$late_worktree" rev-parse HEAD)
 
-export STUB_PR_RECORD="$(printf '20\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/late-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/20' "$late_merge" "$late_head")"
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_late","cwd":"%s"}]' "$late_worktree")"
-export STUB_PASEO_AGENTS_JSON="[]"
+set_merged_pr 20 "$late_head" "$late_merge" chore/late-test
+set_paseo_workspace wks_late "$late_worktree"
+set_paseo_agents "[]"
 rm -f "$paseo_archived"
 : > "$paseo_log"
 : > "$gh_log"
@@ -778,46 +982,22 @@ assert_contains "cleanup: blocked=local_branch_commits_not_merged" "cleanup unme
 assert_contains "cleanup: worktree=retained reason=local_branch_commits_not_merged" "cleanup unmerged local branch"
 assert_contains "cleanup: workspace=retained reason=local_branch_commits_not_merged" "cleanup unmerged local branch"
 assert_path_exists "$late_worktree" "cleanup unmerged local branch"
-if git -C "$unmerged_local_seed" show-ref --verify --quiet refs/heads/chore/late-test; then
-    ok
-else
-    fail "cleanup deleted a local branch with unmerged commits"
-fi
-if [ "$(git -C "$late_worktree" rev-parse HEAD)" = "$late_tip" ]; then
-    ok
-else
-    fail "cleanup changed the unmerged local branch tip"
-fi
+assert_branch_present "$unmerged_local_seed" chore/late-test "cleanup unmerged local branch"
+assert_head_equals "$late_worktree" "$late_tip" "cleanup unmerged local branch"
 assert_no_archive "cleanup unmerged local branch"
-if [ -n "$(git -C "$unmerged_local_seed" ls-remote --heads origin chore/late-test)" ]; then
-    ok
-else
-    fail "cleanup deleted a remote branch before preserving the local workspace"
-fi
+assert_remote_branch_present "$unmerged_local_seed" chore/late-test "cleanup unmerged local branch"
 
-# --- Cleanup safety: explicit workspace ownership ----------------------------
+# --- Cleanup safety: explicit workspace ownership ---------------------------
 
 workspace_identity_fixture="$fixture/workspace-identity"
-make_repository "$workspace_identity_fixture"
-workspace_identity_seed="$workspace_identity_fixture/seed"
-git -C "$workspace_identity_seed" checkout -q -b chore/target-ws
-printf 'target work\n' >> "$workspace_identity_seed/file.txt"
-git -C "$workspace_identity_seed" commit -q -am "feat: target work"
-git -C "$workspace_identity_seed" push -q -u origin chore/target-ws
-workspace_target_head=$(git -C "$workspace_identity_seed" rev-parse HEAD)
-git -C "$workspace_identity_seed" checkout -q main
-git -C "$workspace_identity_seed" merge -q --no-ff chore/target-ws -m "Merge target-ws"
-git -C "$workspace_identity_seed" push -q origin main
-workspace_target_merge=$(git -C "$workspace_identity_seed" rev-parse HEAD)
-git -C "$workspace_identity_seed" reset -q --hard HEAD^1
-workspace_target_worktree="$workspace_identity_fixture/target"
-git -C "$workspace_identity_seed" worktree add -q "$workspace_target_worktree" chore/target-ws
+fixture_output=$(make_merged_issue "$workspace_identity_fixture" chore/target-ws "target work")
+IFS=$'\x1f' read -r workspace_identity_seed workspace_target_head workspace_target_merge workspace_target_worktree <<< "$fixture_output"
 workspace_other_worktree="$workspace_identity_fixture/other"
 git -C "$workspace_identity_seed" worktree add -q -b chore/other-ws "$workspace_other_worktree" HEAD
 
-export STUB_PR_RECORD="$(printf '21\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/target-ws\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/21' "$workspace_target_merge" "$workspace_target_head")"
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_other_issue","cwd":"%s"}]' "$workspace_other_worktree")"
-export STUB_PASEO_AGENTS_JSON="[]"
+set_merged_pr 21 "$workspace_target_head" "$workspace_target_merge" chore/target-ws
+set_paseo_workspace wks_other_issue "$workspace_other_worktree"
+set_paseo_agents "[]"
 rm -f "$paseo_archived"
 : > "$paseo_log"
 
@@ -827,30 +1007,17 @@ run_at "$workspace_identity_seed" "$root/scripts/workflow/cleanup.sh" execute \
 assert_exit 1 "cleanup workspace from another issue"
 assert_contains "cleanup: blocked=workspace_cwd_mismatch" "cleanup workspace from another issue"
 assert_path_exists "$workspace_target_worktree" "cleanup workspace from another issue"
-if git -C "$workspace_identity_seed" show-ref --verify --quiet refs/heads/chore/target-ws; then
-    ok
-else
-    fail "cleanup deleted the target branch when the workspace belonged to another issue"
-fi
+assert_branch_present "$workspace_identity_seed" chore/target-ws "cleanup workspace from another issue"
 assert_no_archive "cleanup workspace from another issue"
 
 absent_workspace_fixture="$fixture/absent-workspace"
-make_repository "$absent_workspace_fixture"
-absent_workspace_seed="$absent_workspace_fixture/seed"
-git -C "$absent_workspace_seed" checkout -q -b chore/absent-ws
-printf 'absent work\n' >> "$absent_workspace_seed/file.txt"
-git -C "$absent_workspace_seed" commit -q -am "feat: absent work"
-git -C "$absent_workspace_seed" push -q -u origin chore/absent-ws
-absent_head=$(git -C "$absent_workspace_seed" rev-parse HEAD)
-git -C "$absent_workspace_seed" checkout -q main
-git -C "$absent_workspace_seed" merge -q --no-ff chore/absent-ws -m "Merge absent-ws"
-git -C "$absent_workspace_seed" push -q origin main
-absent_merge=$(git -C "$absent_workspace_seed" rev-parse HEAD)
+fixture_output=$(make_merged_issue "$absent_workspace_fixture" chore/absent-ws "absent work" no)
+IFS=$'\x1f' read -r absent_workspace_seed absent_head absent_merge _ <<< "$fixture_output"
 absent_missing_worktree="$absent_workspace_fixture/missing-worktree"
 
-export STUB_PR_RECORD="$(printf '22\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/absent-ws\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/22' "$absent_merge" "$absent_head")"
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_missing","cwd":"%s"}]' "$absent_missing_worktree")"
-export STUB_PASEO_AGENTS_JSON="[]"
+set_merged_pr 22 "$absent_head" "$absent_merge" chore/absent-ws
+set_paseo_workspace wks_missing "$absent_missing_worktree"
+set_paseo_agents "[]"
 rm -f "$paseo_archived"
 : > "$paseo_log"
 
@@ -860,36 +1027,21 @@ run_at "$absent_workspace_seed" "$root/scripts/workflow/cleanup.sh" execute \
 assert_exit 1 "cleanup absent workspace worktree"
 assert_contains "cleanup: blocked=workspace_ownership_unverifiable" "cleanup absent workspace worktree"
 assert_no_archive "cleanup absent workspace worktree"
-if git -C "$absent_workspace_seed" show-ref --verify --quiet refs/heads/chore/absent-ws; then
-    ok
-else
-    fail "cleanup deleted a branch whose workspace ownership could not be verified"
-fi
+assert_branch_present "$absent_workspace_seed" chore/absent-ws "cleanup absent workspace worktree"
 
 # --- Cleanup safety: agent ownership and activity ---------------------------
 
 agent_fixture="$fixture/agents"
-make_repository "$agent_fixture"
-agent_seed="$agent_fixture/seed"
-git -C "$agent_seed" checkout -q -b chore/agent-ws
-printf 'agent work\n' >> "$agent_seed/file.txt"
-git -C "$agent_seed" commit -q -am "feat: agent work"
-git -C "$agent_seed" push -q -u origin chore/agent-ws
-agent_head=$(git -C "$agent_seed" rev-parse HEAD)
-git -C "$agent_seed" checkout -q main
-git -C "$agent_seed" merge -q --no-ff chore/agent-ws -m "Merge agent-ws"
-git -C "$agent_seed" push -q origin main
-agent_merge=$(git -C "$agent_seed" rev-parse HEAD)
-git -C "$agent_seed" reset -q --hard HEAD^1
-agent_worktree="$agent_fixture/worktree"
-git -C "$agent_seed" worktree add -q "$agent_worktree" chore/agent-ws
+fixture_output=$(make_merged_issue "$agent_fixture" chore/agent-ws "agent work")
+IFS=$'\x1f' read -r agent_seed agent_head agent_merge agent_worktree <<< "$fixture_output"
 
-export STUB_PR_RECORD="$(printf '23\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/agent-ws\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/23' "$agent_merge" "$agent_head")"
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_agent","cwd":"%s"}]' "$agent_worktree")"
-export STUB_PASEO_AGENTS_JSON="$(printf '[\n  {\n    "id": "agent-running",\n    "name": "Ongoing work",\n    "status": "running",\n    "cwd": "%s",\n    "workspaceId": "wks_agent"\n  }\n]\n' "$agent_worktree")"
+set_merged_pr 23 "$agent_head" "$agent_merge" chore/agent-ws
+set_paseo_workspace wks_agent "$agent_worktree"
 rm -f "$paseo_archived"
 : > "$paseo_log"
 
+agents="[$(paseo_agent_json agent-running "Ongoing work" running "$agent_worktree" wks_agent)]"
+set_paseo_agents "$agents"
 run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --pr 23 --verified-sha "$agent_head" \
     --workspace-id wks_agent --worktree "$agent_worktree" --main-worktree "$agent_seed"
@@ -898,7 +1050,8 @@ assert_contains "cleanup: blocked=workspace_agent_ongoing" "cleanup ongoing agen
 assert_path_exists "$agent_worktree" "cleanup ongoing agent"
 assert_no_archive "cleanup ongoing agent"
 
-export STUB_PASEO_AGENTS_JSON="$(printf '[\n  {\n    "id": "agent-unrelated",\n    "name": "Other work",\n    "status": "idle",\n    "cwd": "%s",\n    "workspaceId": "wks_agent"\n  }\n]\n' "$agent_fixture/elsewhere")"
+agents="[$(paseo_agent_json agent-unrelated "Other work" idle "$agent_fixture/elsewhere" wks_agent)]"
+set_paseo_agents "$agents"
 rm -f "$paseo_archived"
 : > "$paseo_log"
 run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
@@ -909,7 +1062,10 @@ assert_contains "cleanup: blocked=workspace_agent_unrelated" "cleanup unrelated 
 assert_path_exists "$agent_worktree" "cleanup unrelated agent"
 assert_no_archive "cleanup unrelated agent"
 
-export STUB_PASEO_AGENTS_JSON="$(printf '[{"id":"agent-compact-running","name":"Compact ongoing","status":"running","cwd":"%s","workspaceId":"wks_agent"},{"id":"agent-compact-idle","name":"Compact idle","status":"idle","cwd":"%s","workspaceId":"wks_other"}]\n' "$agent_worktree" "$agent_fixture/elsewhere")"
+compact_running=$(paseo_agent_json agent-compact-running "Compact ongoing" running "$agent_worktree" wks_agent)
+compact_idle=$(paseo_agent_json agent-compact-idle "Compact idle" idle "$agent_fixture/elsewhere" wks_other)
+agents=$(printf '[%s,%s]' "$compact_running" "$compact_idle")
+set_paseo_agents "$agents"
 rm -f "$paseo_archived"
 : > "$paseo_log"
 run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
@@ -920,7 +1076,8 @@ assert_contains "cleanup: blocked=workspace_agent_ongoing" "cleanup compact ongo
 assert_path_exists "$agent_worktree" "cleanup compact ongoing agent"
 assert_no_archive "cleanup compact ongoing agent"
 
-export STUB_PASEO_AGENTS_JSON="$(printf '[{"id":"agent-other-workspace","name":"Other workspace","status":"idle","cwd":"%s","workspaceId":"wks_other"}]\n' "$agent_worktree")"
+agents="[$(paseo_agent_json agent-other-workspace "Other workspace" idle "$agent_worktree" wks_other)]"
+set_paseo_agents "$agents"
 rm -f "$paseo_archived"
 : > "$paseo_log"
 run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
@@ -931,7 +1088,7 @@ assert_contains "cleanup: blocked=workspace_agent_other_workspace" "cleanup agen
 assert_path_exists "$agent_worktree" "cleanup agent from another workspace"
 assert_no_archive "cleanup agent from another workspace"
 
-export STUB_PASEO_AGENTS_JSON='[{"unexpected":true}]'
+set_paseo_agents '[{"unexpected":true}]'
 rm -f "$paseo_archived"
 : > "$paseo_log"
 run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
@@ -942,7 +1099,7 @@ assert_contains "cleanup: blocked=workspace_agent_query_failed" "cleanup malform
 assert_path_exists "$agent_worktree" "cleanup malformed agent state"
 assert_no_archive "cleanup malformed agent state"
 
-export STUB_PASEO_AGENTS_JSON="$(printf '[{"id":"agent-null-cwd","name":"Null cwd","status":"idle","cwd":null,"workspaceId":"wks_agent"}]\n')"
+set_paseo_agents '[{"id":"agent-null-cwd","name":"Null cwd","status":"idle","cwd":null,"workspaceId":"wks_agent"}]'
 rm -f "$paseo_archived"
 : > "$paseo_log"
 run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
@@ -953,18 +1110,44 @@ assert_contains "cleanup: blocked=workspace_agent_query_failed" "cleanup non-str
 assert_path_exists "$agent_worktree" "cleanup non-string agent field"
 assert_no_archive "cleanup non-string agent field"
 
-export STUB_PASEO_AGENTS_JSON="$(printf '[{"id":"agent-escaped-name","name":"caf\\u00e9","status":"idle","cwd":"%s","workspaceId":"wks_agent"}]\n' "$agent_worktree")"
+duplicate_first=$(paseo_agent_json agent-duplicate "First" idle "$agent_worktree" wks_agent)
+duplicate_second=$(paseo_agent_json agent-duplicate "Second" idle "$agent_worktree" wks_agent)
+agents=$(printf '[%s,%s]' "$duplicate_first" "$duplicate_second")
+set_paseo_agents "$agents"
 rm -f "$paseo_archived"
 : > "$paseo_log"
 run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --pr 23 --verified-sha "$agent_head" \
     --workspace-id wks_agent --worktree "$agent_worktree" --main-worktree "$agent_seed"
-assert_exit 1 "cleanup unrepresentable agent escape"
-assert_contains "cleanup: blocked=workspace_agent_query_failed" "cleanup unrepresentable agent escape"
-assert_path_exists "$agent_worktree" "cleanup unrepresentable agent escape"
-assert_no_archive "cleanup unrepresentable agent escape"
+assert_exit 1 "cleanup duplicate agent identity"
+assert_contains "cleanup: blocked=workspace_agent_query_failed" "cleanup duplicate agent identity"
+assert_path_exists "$agent_worktree" "cleanup duplicate agent identity"
+assert_no_archive "cleanup duplicate agent identity"
 
-export STUB_PASEO_AGENTS_JSON="[]"
+mkdir -p "$agent_worktree/café"
+set_paseo_agents "[{\"id\":\"agent-escaped-path\",\"name\":\"caf\\u00e9\",\"status\":\"idle\",\"cwd\":\"$agent_worktree/caf\\u00e9\",\"workspaceId\":\"wks_agent\"}]"
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 23 --verified-sha "$agent_head" \
+    --workspace-id wks_agent --worktree "$agent_worktree" --main-worktree "$agent_seed"
+assert_exit 0 "cleanup escaped agent path"
+assert_contains "cleanup: worktree=remove_candidate" "cleanup escaped agent path"
+assert_contains "cleanup: result=pass" "cleanup escaped agent path"
+assert_no_archive "cleanup escaped agent path"
+
+set_paseo_agents "[{\"id\":\"agent-control-path\",\"name\":\"control\",\"status\":\"idle\",\"cwd\":\"$agent_worktree/bad\\u001fpath\",\"workspaceId\":\"wks_agent\"}]"
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 23 --verified-sha "$agent_head" \
+    --workspace-id wks_agent --worktree "$agent_worktree" --main-worktree "$agent_seed"
+assert_exit 1 "cleanup unsupported agent control character"
+assert_contains "cleanup: blocked=workspace_agent_query_failed" "cleanup unsupported agent control character"
+assert_path_exists "$agent_worktree" "cleanup unsupported agent control character"
+assert_no_archive "cleanup unsupported agent control character"
+
+set_paseo_agents "[]"
 export STUB_PASEO_AGENTS_FAIL=1
 rm -f "$paseo_archived"
 : > "$paseo_log"
@@ -976,29 +1159,75 @@ assert_exit 1 "cleanup unavailable agent state"
 assert_contains "cleanup: blocked=workspace_agent_query_failed" "cleanup unavailable agent state"
 assert_path_exists "$agent_worktree" "cleanup unavailable agent state"
 assert_no_archive "cleanup unavailable agent state"
-export STUB_PASEO_AGENTS_JSON="[]"
+set_paseo_agents "[]"
+
+# --- Cleanup safety: Git state query failures -------------------------------
+
+status_fixture="$fixture/status-failure"
+fixture_output=$(make_merged_issue "$status_fixture" chore/status-ws "status work")
+IFS=$'\x1f' read -r status_seed status_head status_merge status_worktree <<< "$fixture_output"
+
+set_merged_pr 32 "$status_head" "$status_merge" chore/status-ws
+set_paseo_workspace wks_status "$status_worktree"
+set_paseo_agents "[]"
+rm -f "$paseo_archived"
+
+export STUB_GIT_FAIL_WORKTREE=1
+run_at "$status_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 32 --verified-sha "$status_head" \
+    --workspace-id wks_status --worktree "$status_worktree"
+unset STUB_GIT_FAIL_WORKTREE
+assert_exit 1 "cleanup main worktree query failure"
+assert_contains "cleanup: blocked=local_main_query_failed" "cleanup main worktree query failure"
+assert_path_exists "$status_worktree" "cleanup main worktree query failure"
+assert_branch_present "$status_seed" chore/status-ws "cleanup main worktree query failure"
+assert_remote_branch_present "$status_seed" chore/status-ws "cleanup main worktree query failure"
+assert_no_archive "cleanup main worktree query failure"
+
+export STUB_GIT_FAIL_STATUS="tracked"
+export STUB_GIT_FAIL_STATUS_PATH="$status_worktree"
+run_at "$status_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 32 --verified-sha "$status_head" \
+    --workspace-id wks_status --worktree "$status_worktree" --main-worktree "$status_seed"
+unset STUB_GIT_FAIL_STATUS STUB_GIT_FAIL_STATUS_PATH
+assert_exit 1 "cleanup tracked status query failure"
+assert_contains "cleanup: blocked=worktree_status_failed" "cleanup tracked status query failure"
+assert_path_exists "$status_worktree" "cleanup tracked status query failure"
+assert_branch_present "$status_seed" chore/status-ws "cleanup tracked status query failure"
+assert_no_archive "cleanup tracked status query failure"
+
+export STUB_GIT_FAIL_STATUS="ignored"
+export STUB_GIT_FAIL_STATUS_PATH="$status_worktree"
+run_at "$status_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 32 --verified-sha "$status_head" \
+    --workspace-id wks_status --worktree "$status_worktree" --main-worktree "$status_seed"
+unset STUB_GIT_FAIL_STATUS STUB_GIT_FAIL_STATUS_PATH
+assert_exit 1 "cleanup ignored status query failure"
+assert_contains "cleanup: blocked=worktree_status_failed" "cleanup ignored status query failure"
+assert_path_exists "$status_worktree" "cleanup ignored status query failure"
+assert_branch_present "$status_seed" chore/status-ws "cleanup ignored status query failure"
+assert_no_archive "cleanup ignored status query failure"
+
+export STUB_GIT_FAIL_WORKTREE=1
+run_at "$status_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 32 --verified-sha "$status_head" \
+    --workspace-id wks_status --worktree "$status_worktree" --main-worktree "$status_seed"
+unset STUB_GIT_FAIL_WORKTREE
+assert_exit 1 "cleanup worktree query failure"
+assert_contains "cleanup: blocked=worktree_query_failed" "cleanup worktree query failure"
+assert_path_exists "$status_worktree" "cleanup worktree query failure"
+assert_branch_present "$status_seed" chore/status-ws "cleanup worktree query failure"
+assert_no_archive "cleanup worktree query failure"
 
 # --- Cleanup safety: repository identity ------------------------------------
 
 identity_fixture="$fixture/identity"
-make_repository "$identity_fixture"
-identity_seed="$identity_fixture/seed"
-git -C "$identity_seed" checkout -q -b chore/identity-ws
-printf 'identity work\n' >> "$identity_seed/file.txt"
-git -C "$identity_seed" commit -q -am "feat: identity work"
-git -C "$identity_seed" push -q -u origin chore/identity-ws
-identity_head=$(git -C "$identity_seed" rev-parse HEAD)
-git -C "$identity_seed" checkout -q main
-git -C "$identity_seed" merge -q --no-ff chore/identity-ws -m "Merge identity-ws"
-git -C "$identity_seed" push -q origin main
-identity_merge=$(git -C "$identity_seed" rev-parse HEAD)
-git -C "$identity_seed" reset -q --hard HEAD^1
-identity_worktree="$identity_fixture/worktree"
-git -C "$identity_seed" worktree add -q "$identity_worktree" chore/identity-ws
+fixture_output=$(make_merged_issue "$identity_fixture" chore/identity-ws "identity work")
+IFS=$'\x1f' read -r identity_seed identity_head identity_merge identity_worktree <<< "$fixture_output"
 
-export STUB_PR_RECORD="$(printf '24\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/identity-ws\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/24' "$identity_merge" "$identity_head")"
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_identity","cwd":"%s"}]' "$identity_worktree")"
-export STUB_PASEO_AGENTS_JSON="[]"
+set_merged_pr 24 "$identity_head" "$identity_merge" chore/identity-ws
+set_paseo_workspace wks_identity "$identity_worktree"
+set_paseo_agents "[]"
 rm -f "$paseo_archived"
 : > "$paseo_log"
 
@@ -1011,34 +1240,56 @@ assert_exit 1 "cleanup repository identity mismatch"
 assert_contains "repository identity mismatch" "cleanup repository identity mismatch"
 assert_path_exists "$identity_worktree" "cleanup repository identity mismatch"
 assert_no_archive "cleanup repository identity mismatch"
-if git -C "$identity_seed" show-ref --verify --quiet refs/heads/chore/identity-ws; then
-    ok
-else
-    fail "cleanup deleted a branch when the GitHub repository and origin disagreed"
-fi
+assert_branch_present "$identity_seed" chore/identity-ws "cleanup repository identity mismatch"
+
+git -C "$identity_seed" config remote.origin.pushurl "https://github.com/other/repo.git"
+run_at "$identity_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 24 --verified-sha "$identity_head"
+assert_exit 1 "cleanup push destination mismatch"
+assert_contains "repository identity mismatch" "cleanup push destination mismatch"
+assert_no_archive "cleanup push destination mismatch"
+
+destination_fixture="$fixture/destinations"
+fixture_output=$(make_merged_issue "$destination_fixture" chore/destination-ws "destination work")
+IFS=$'\x1f' read -r destination_seed destination_head destination_merge destination_worktree <<< "$fixture_output"
+set_merged_pr 33 "$destination_head" "$destination_merge" chore/destination-ws
+set_paseo_workspace wks_destination "$destination_worktree"
+set_paseo_agents "[]"
+
+git -C "$destination_seed" config remote.origin.pushurl "https://github.com/other/repo.git"
+run_at "$destination_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 33 --verified-sha "$destination_head" \
+    --workspace-id wks_destination --worktree "$destination_worktree" --main-worktree "$destination_seed"
+assert_exit 1 "cleanup fetch and push destinations disagree"
+assert_contains "do not identify the same repository" "cleanup fetch and push destinations disagree"
+assert_remote_branch_present "$destination_seed" chore/destination-ws "cleanup fetch and push destinations disagree"
+assert_path_exists "$destination_worktree" "cleanup fetch and push destinations disagree"
+assert_branch_present "$destination_seed" chore/destination-ws "cleanup fetch and push destinations disagree"
+assert_no_archive "cleanup fetch and push destinations disagree"
+
+git -C "$destination_seed" config --unset remote.origin.pushurl
+git -C "$destination_seed" remote set-url --add origin "https://github.com/other/repo.git"
+run_at "$destination_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 33 --verified-sha "$destination_head" \
+    --workspace-id wks_destination --worktree "$destination_worktree" --main-worktree "$destination_seed"
+assert_exit 1 "cleanup fetch destinations disagree"
+assert_contains "do not identify the same repository" "cleanup fetch destinations disagree"
+assert_remote_branch_present "$destination_seed" chore/destination-ws "cleanup fetch destinations disagree"
+assert_path_exists "$destination_worktree" "cleanup fetch destinations disagree"
+assert_branch_present "$destination_seed" chore/destination-ws "cleanup fetch destinations disagree"
+assert_no_archive "cleanup fetch destinations disagree"
 
 main_identity_fixture="$fixture/main-identity"
-make_repository "$main_identity_fixture"
-main_identity_seed="$main_identity_fixture/seed"
-git -C "$main_identity_seed" checkout -q -b chore/main-identity
-printf 'main identity work\n' >> "$main_identity_seed/file.txt"
-git -C "$main_identity_seed" commit -q -am "feat: main identity work"
-git -C "$main_identity_seed" push -q -u origin chore/main-identity
-main_identity_head=$(git -C "$main_identity_seed" rev-parse HEAD)
-git -C "$main_identity_seed" checkout -q main
-git -C "$main_identity_seed" merge -q --no-ff chore/main-identity -m "Merge main-identity"
-git -C "$main_identity_seed" push -q origin main
-main_identity_merge=$(git -C "$main_identity_seed" rev-parse HEAD)
-main_identity_worktree="$main_identity_fixture/worktree"
-git -C "$main_identity_seed" worktree add -q "$main_identity_worktree" chore/main-identity
+fixture_output=$(make_merged_issue "$main_identity_fixture" chore/main-identity "main identity work")
+IFS=$'\x1f' read -r main_identity_seed main_identity_head main_identity_merge main_identity_worktree <<< "$fixture_output"
 
 foreign_fixture="$fixture/foreign-main"
 make_repository "$foreign_fixture"
 foreign_seed="$foreign_fixture/seed"
 
-export STUB_PR_RECORD="$(printf '25\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/main-identity\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/25' "$main_identity_merge" "$main_identity_head")"
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_main_identity","cwd":"%s"}]' "$main_identity_worktree")"
-export STUB_PASEO_AGENTS_JSON="[]"
+set_merged_pr 25 "$main_identity_head" "$main_identity_merge" chore/main-identity
+set_paseo_workspace wks_main_identity "$main_identity_worktree"
+set_paseo_agents "[]"
 rm -f "$paseo_archived"
 : > "$paseo_log"
 run_at "$main_identity_seed" "$root/scripts/workflow/cleanup.sh" execute \
@@ -1048,11 +1299,7 @@ assert_exit 1 "cleanup main worktree from another repository"
 assert_contains "cleanup: blocked=local_main_repository_mismatch" "cleanup main worktree from another repository"
 assert_path_exists "$main_identity_worktree" "cleanup main worktree from another repository"
 assert_no_archive "cleanup main worktree from another repository"
-if [ -n "$(git -C "$main_identity_seed" ls-remote --heads origin chore/main-identity)" ]; then
-    ok
-else
-    fail "cleanup deleted a remote branch before verifying the main worktree repository"
-fi
+assert_remote_branch_present "$main_identity_seed" chore/main-identity "cleanup main worktree from another repository"
 
 rm -f "$paseo_archived"
 : > "$paseo_log"
@@ -1064,35 +1311,21 @@ assert_exit 1 "cleanup explicit missing main worktree"
 assert_contains "cleanup: blocked=local_main_worktree_missing" "cleanup explicit missing main worktree"
 assert_path_exists "$main_identity_worktree" "cleanup explicit missing main worktree"
 assert_no_archive "cleanup explicit missing main worktree"
-if [ -n "$(git -C "$main_identity_seed" ls-remote --heads origin chore/main-identity)" ]; then
-    ok
-else
-    fail "cleanup deleted a remote branch when the explicit main worktree was missing"
-fi
+assert_remote_branch_present "$main_identity_seed" chore/main-identity "cleanup explicit missing main worktree"
 
 # --- Cleanup safety: workspace discovery and incomplete state ---------------
 
 discovery_fixture="$fixture/discovery"
-make_repository "$discovery_fixture"
-discovery_seed="$discovery_fixture/seed"
-git -C "$discovery_seed" checkout -q -b chore/discovery-ws
-printf 'discovery work\n' >> "$discovery_seed/file.txt"
-git -C "$discovery_seed" commit -q -am "feat: discovery work"
-git -C "$discovery_seed" push -q -u origin chore/discovery-ws
-discovery_head=$(git -C "$discovery_seed" rev-parse HEAD)
-git -C "$discovery_seed" checkout -q main
-git -C "$discovery_seed" merge -q --no-ff chore/discovery-ws -m "Merge discovery-ws"
-git -C "$discovery_seed" push -q origin main
-discovery_merge=$(git -C "$discovery_seed" rev-parse HEAD)
-git -C "$discovery_seed" reset -q --hard HEAD^1
-discovery_worktree="$discovery_fixture/worktree"
-git -C "$discovery_seed" worktree add -q "$discovery_worktree" chore/discovery-ws
+fixture_output=$(make_merged_issue "$discovery_fixture" chore/discovery-ws "discovery work")
+IFS=$'\x1f' read -r discovery_seed discovery_head discovery_merge discovery_worktree <<< "$fixture_output"
 
-export STUB_PR_RECORD="$(printf '29\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/discovery-ws\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/29' "$discovery_merge" "$discovery_head")"
-export STUB_PASEO_JSON='[{"workspaceId":"wks_discovery"}]'
-export STUB_PASEO_AGENTS_JSON="[]"
+set_merged_pr 29 "$discovery_head" "$discovery_merge" chore/discovery-ws
+set_paseo_agents "[]"
 rm -f "$paseo_archived"
 : > "$paseo_log"
+
+set_paseo_agents "[]"
+set_paseo_json '[{"workspaceId":"wks_discovery"}]'
 run_at "$discovery_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --pr 29 --verified-sha "$discovery_head" \
     --worktree "$discovery_worktree" --main-worktree "$discovery_seed"
@@ -1101,9 +1334,7 @@ assert_contains "cleanup: blocked=workspace_query_failed" "cleanup incomplete wo
 assert_path_exists "$discovery_worktree" "cleanup incomplete workspace discovery state"
 assert_no_archive "cleanup incomplete workspace discovery state"
 
-export STUB_PASEO_JSON='[{"workspaceId":"wks_discovery","cwd":null}]'
-rm -f "$paseo_archived"
-: > "$paseo_log"
+set_paseo_json '[{"workspaceId":"wks_discovery","cwd":null}]'
 run_at "$discovery_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --pr 29 --verified-sha "$discovery_head" \
     --worktree "$discovery_worktree" --main-worktree "$discovery_seed"
@@ -1112,8 +1343,56 @@ assert_contains "cleanup: blocked=workspace_query_failed" "cleanup non-string wo
 assert_path_exists "$discovery_worktree" "cleanup non-string workspace cwd"
 assert_no_archive "cleanup non-string workspace cwd"
 
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_discovery","cwd":"%s/"}]' "$discovery_worktree")"
-export STUB_PASEO_AGENTS_JSON="$(printf '[\n  {\n    "id": "agent-discovery",\n    "name": "Discovery work",\n    "status": "idle",\n    "cwd": "%s",\n    "workspaceId": "wks_discovery"\n  }\n]\n' "$discovery_worktree")"
+duplicate_one=$(paseo_workspace_record wks_discovery "$discovery_worktree")
+duplicate_two=$(paseo_workspace_record wks_discovery "$discovery_fixture/elsewhere")
+duplicate_workspaces=$(printf '[%s,%s]' "$duplicate_one" "$duplicate_two")
+set_paseo_json "$duplicate_workspaces"
+run_at "$discovery_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 29 --verified-sha "$discovery_head" \
+    --worktree "$discovery_worktree" --main-worktree "$discovery_seed"
+assert_exit 1 "cleanup duplicate workspace identity"
+assert_contains "cleanup: blocked=workspace_query_failed" "cleanup duplicate workspace identity"
+assert_path_exists "$discovery_worktree" "cleanup duplicate workspace identity"
+assert_no_archive "cleanup duplicate workspace identity"
+
+duplicate_cwd_one=$(paseo_workspace_record wks_discovery_a "$discovery_worktree")
+duplicate_cwd_two=$(paseo_workspace_record wks_discovery_b "$discovery_worktree")
+duplicate_cwds=$(printf '[%s,%s]' "$duplicate_cwd_one" "$duplicate_cwd_two")
+set_paseo_json "$duplicate_cwds"
+run_at "$discovery_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 29 --verified-sha "$discovery_head" \
+    --worktree "$discovery_worktree" --main-worktree "$discovery_seed"
+assert_exit 1 "cleanup duplicate workspace cwd"
+assert_contains "cleanup: blocked=workspace_query_failed" "cleanup duplicate workspace cwd"
+assert_path_exists "$discovery_worktree" "cleanup duplicate workspace cwd"
+assert_no_archive "cleanup duplicate workspace cwd"
+
+variant_one=$(paseo_workspace_record wks_discovery_a "$discovery_worktree")
+variant_two=$(paseo_workspace_record wks_discovery_b "$discovery_worktree/")
+ambiguous_workspaces=$(printf '[%s,%s]' "$variant_one" "$variant_two")
+set_paseo_json "$ambiguous_workspaces"
+run_at "$discovery_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 29 --verified-sha "$discovery_head" \
+    --worktree "$discovery_worktree" --main-worktree "$discovery_seed"
+assert_exit 1 "cleanup ambiguous normalized workspace cwd"
+assert_contains "cleanup: blocked=workspace_identity_ambiguous" "cleanup ambiguous normalized workspace cwd"
+assert_path_exists "$discovery_worktree" "cleanup ambiguous normalized workspace cwd"
+assert_no_archive "cleanup ambiguous normalized workspace cwd"
+
+control_workspace="[{\"workspaceId\":\"wks_discovery\",\"cwd\":\"$discovery_worktree/bad\\u001fpath\"}]"
+set_paseo_json "$control_workspace"
+run_at "$discovery_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 29 --verified-sha "$discovery_head" \
+    --worktree "$discovery_worktree" --main-worktree "$discovery_seed"
+assert_exit 1 "cleanup unsupported workspace control character"
+assert_contains "cleanup: blocked=workspace_query_failed" "cleanup unsupported workspace control character"
+assert_path_exists "$discovery_worktree" "cleanup unsupported workspace control character"
+assert_no_archive "cleanup unsupported workspace control character"
+
+formatted_workspace=$(printf '[{"workspaceId":"wks_discovery","cwd":"%s/"}]' "$discovery_worktree")
+set_paseo_json "$formatted_workspace"
+agents="[$(paseo_agent_json agent-discovery "Discovery work" idle "$discovery_worktree" wks_discovery)]"
+set_paseo_agents "$agents"
 rm -f "$paseo_archived"
 : > "$paseo_log"
 run_at "$discovery_seed" "$root/scripts/workflow/cleanup.sh" execute \
@@ -1129,20 +1408,8 @@ assert_path_missing "$discovery_worktree" "cleanup discovered workspace with for
 # --- Cleanup safety: remote branch races ------------------------------------
 
 race_fixture="$fixture/race"
-make_repository "$race_fixture"
-race_seed="$race_fixture/seed"
-git -C "$race_seed" checkout -q -b chore/race-ws
-printf 'race work\n' >> "$race_seed/file.txt"
-git -C "$race_seed" commit -q -am "feat: race work"
-git -C "$race_seed" push -q -u origin chore/race-ws
-race_head=$(git -C "$race_seed" rev-parse HEAD)
-git -C "$race_seed" checkout -q main
-git -C "$race_seed" merge -q --no-ff chore/race-ws -m "Merge race-ws"
-git -C "$race_seed" push -q origin main
-race_merge=$(git -C "$race_seed" rev-parse HEAD)
-git -C "$race_seed" reset -q --hard HEAD^1
-race_worktree="$race_fixture/worktree"
-git -C "$race_seed" worktree add -q "$race_worktree" chore/race-ws
+fixture_output=$(make_merged_issue "$race_fixture" chore/race-ws "race work")
+IFS=$'\x1f' read -r race_seed race_head race_merge race_worktree <<< "$fixture_output"
 git -C "$race_seed" checkout -q -b chore/race-concurrent HEAD
 printf 'concurrent work\n' >> "$race_seed/file.txt"
 git -C "$race_seed" commit -q -am "feat: concurrent work"
@@ -1150,59 +1417,35 @@ race_concurrent=$(git -C "$race_seed" rev-parse HEAD)
 git -C "$race_seed" push -q origin chore/race-concurrent
 git -C "$race_seed" checkout -q main
 
-race_git="$fixture/bin/git-race"
-real_git=$(command -v git)
-cat > "$race_git" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-if [[ "\$*" == *"--force-with-lease"* && "\$*" == *"--delete"* ]]; then
-    "$real_git" -C "$race_fixture/origin.git" update-ref "refs/heads/chore/race-ws" "$race_concurrent"
-fi
-exec "$real_git" "\$@"
-EOF
-chmod +x "$race_git"
-
-export STUB_PR_RECORD="$(printf '26\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/race-ws\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/26' "$race_merge" "$race_head")"
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_race","cwd":"%s"}]' "$race_worktree")"
-export STUB_PASEO_AGENTS_JSON="[]"
+set_merged_pr 26 "$race_head" "$race_merge" chore/race-ws
+set_paseo_workspace wks_race "$race_worktree"
+set_paseo_agents "[]"
 rm -f "$paseo_archived"
 : > "$paseo_log"
-export GIT_BIN="$race_git"
+export STUB_RACE_ORIGIN="$race_fixture/origin.git"
+export STUB_RACE_REF="refs/heads/chore/race-ws"
+export STUB_RACE_SHA="$race_concurrent"
 run_at "$race_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --pr 26 --verified-sha "$race_head" \
     --workspace-id wks_race --worktree "$race_worktree" --main-worktree "$race_seed"
-unset GIT_BIN
+unset STUB_RACE_ORIGIN STUB_RACE_REF STUB_RACE_SHA
 assert_exit 1 "cleanup remote branch race"
 assert_contains "cleanup: blocked=remote_branch_delete_failed" "cleanup remote branch race"
-if [ "$(git -C "$race_seed" ls-remote --heads origin chore/race-ws | awk '{ print $1 }')" = "$race_concurrent" ]; then
-    ok
-else
-    fail "cleanup silently deleted a remote branch that changed during verification"
-fi
+race_ref=$(git -C "$race_seed" ls-remote --heads origin chore/race-ws)
+assert_equals "$race_concurrent" "${race_ref%%[[:space:]]*}" "cleanup remote branch race"
 
 # --- Cleanup safety: unavailable or malformed state -------------------------
 
 malformed_fixture="$fixture/malformed"
-make_repository "$malformed_fixture"
-malformed_seed="$malformed_fixture/seed"
-git -C "$malformed_seed" checkout -q -b chore/malformed-ws
-printf 'malformed work\n' >> "$malformed_seed/file.txt"
-git -C "$malformed_seed" commit -q -am "feat: malformed work"
-git -C "$malformed_seed" push -q -u origin chore/malformed-ws
-malformed_head=$(git -C "$malformed_seed" rev-parse HEAD)
-git -C "$malformed_seed" checkout -q main
-git -C "$malformed_seed" merge -q --no-ff chore/malformed-ws -m "Merge malformed-ws"
-git -C "$malformed_seed" push -q origin main
-malformed_merge=$(git -C "$malformed_seed" rev-parse HEAD)
-git -C "$malformed_seed" reset -q --hard HEAD^1
-malformed_worktree="$malformed_fixture/worktree"
-git -C "$malformed_seed" worktree add -q "$malformed_worktree" chore/malformed-ws
+fixture_output=$(make_merged_issue "$malformed_fixture" chore/malformed-ws "malformed work")
+IFS=$'\x1f' read -r malformed_seed malformed_head malformed_merge malformed_worktree <<< "$fixture_output"
 
-export STUB_PR_RECORD="$(printf '27\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/malformed-ws\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/27' "$malformed_merge" "$malformed_head")"
-export STUB_PASEO_JSON='{"workspaceId": "wks_malformed"}'
-export STUB_PASEO_AGENTS_JSON="[]"
+set_merged_pr 27 "$malformed_head" "$malformed_merge" chore/malformed-ws
+set_paseo_agents "[]"
 rm -f "$paseo_archived"
 : > "$paseo_log"
+
+set_paseo_json '{"workspaceId": "wks_malformed"}'
 run_at "$malformed_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --pr 27 --verified-sha "$malformed_head" \
     --workspace-id wks_malformed --worktree "$malformed_worktree" --main-worktree "$malformed_seed"
@@ -1210,6 +1453,24 @@ assert_exit 1 "cleanup malformed paseo state"
 assert_contains "cleanup: blocked=workspace_query_failed" "cleanup malformed paseo state"
 assert_path_exists "$malformed_worktree" "cleanup malformed paseo state"
 assert_no_archive "cleanup malformed paseo state"
+
+set_paseo_json '[{"workspaceId":"wks_malformed"'
+run_at "$malformed_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 27 --verified-sha "$malformed_head" \
+    --workspace-id wks_malformed --worktree "$malformed_worktree" --main-worktree "$malformed_seed"
+assert_exit 1 "cleanup truncated paseo state"
+assert_contains "cleanup: blocked=workspace_query_failed" "cleanup truncated paseo state"
+assert_path_exists "$malformed_worktree" "cleanup truncated paseo state"
+assert_no_archive "cleanup truncated paseo state"
+
+set_paseo_json '[] []'
+run_at "$malformed_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 27 --verified-sha "$malformed_head" \
+    --workspace-id wks_malformed --worktree "$malformed_worktree" --main-worktree "$malformed_seed"
+assert_exit 1 "cleanup multiple json values"
+assert_contains "cleanup: blocked=workspace_query_failed" "cleanup multiple json values"
+assert_path_exists "$malformed_worktree" "cleanup multiple json values"
+assert_no_archive "cleanup multiple json values"
 
 export STUB_GH_FAIL=1
 run_at "$malformed_seed" "$root/scripts/workflow/cleanup.sh" execute \
@@ -1231,24 +1492,12 @@ assert_no_archive "cleanup unverifiable origin"
 # --- Cleanup safety: resumable partial cleanup ------------------------------
 
 resume_fixture="$fixture/resume"
-make_repository "$resume_fixture"
-resume_seed="$resume_fixture/seed"
-git -C "$resume_seed" checkout -q -b chore/resume-ws
-printf 'resume work\n' >> "$resume_seed/file.txt"
-git -C "$resume_seed" commit -q -am "feat: resume work"
-git -C "$resume_seed" push -q -u origin chore/resume-ws
-resume_head=$(git -C "$resume_seed" rev-parse HEAD)
-git -C "$resume_seed" checkout -q main
-git -C "$resume_seed" merge -q --no-ff chore/resume-ws -m "Merge resume-ws"
-git -C "$resume_seed" push -q origin main
-resume_merge=$(git -C "$resume_seed" rev-parse HEAD)
-git -C "$resume_seed" reset -q --hard HEAD^1
-resume_worktree="$resume_fixture/worktree"
-git -C "$resume_seed" worktree add -q "$resume_worktree" chore/resume-ws
+fixture_output=$(make_merged_issue "$resume_fixture" chore/resume-ws "resume work")
+IFS=$'\x1f' read -r resume_seed resume_head resume_merge resume_worktree <<< "$fixture_output"
 
-export STUB_PR_RECORD="$(printf '28\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/resume-ws\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/28' "$resume_merge" "$resume_head")"
-export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_resume","cwd":"%s"}]' "$resume_worktree")"
-export STUB_PASEO_AGENTS_JSON="[]"
+set_merged_pr 28 "$resume_head" "$resume_merge" chore/resume-ws
+set_paseo_workspace wks_resume "$resume_worktree"
+set_paseo_agents "[]"
 rm -f "$paseo_archived"
 : > "$paseo_log"
 
@@ -1261,11 +1510,7 @@ assert_exit 1 "cleanup partial paseo failure"
 assert_contains "cleanup: blocked=workspace_query_failed" "cleanup partial paseo failure"
 assert_path_exists "$resume_worktree" "cleanup partial paseo failure"
 assert_no_archive "cleanup partial paseo failure"
-if [ -z "$(git -C "$resume_seed" ls-remote --heads origin chore/resume-ws)" ]; then
-    ok
-else
-    fail "cleanup did not complete the safe remote branch step before the workspace block"
-fi
+assert_remote_branch_absent "$resume_seed" chore/resume-ws "cleanup partial paseo failure"
 
 run_at "$resume_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --pr 28 --verified-sha "$resume_head" \

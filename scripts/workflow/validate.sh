@@ -3,7 +3,7 @@
 #
 #   validate.sh full
 #       Restore, format, build, test, repository-policy tests, documentation,
-#       public-content checks, and workflow-script tests.
+#       public-content checks, workflow ShellCheck, and workflow-script tests.
 #
 #   validate.sh docs
 #       Documentation and public-content checks only.
@@ -25,6 +25,7 @@ set -euo pipefail
 
 WORKFLOW_NAME=validate
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=scripts/workflow/common.sh
 source "$script_dir/common.sh"
 root="$(workflow_repo_root)"
 
@@ -87,6 +88,8 @@ check_public_content() {
 }
 
 check_workflow() {
+    workflow_require_command jq
+    bash scripts/check-workflow-shell.sh
     bash scripts/test-workflow.sh
 }
 
@@ -97,8 +100,14 @@ capture_state() {
     cd "$root"
     local head
     local dirty
-    head=$("$GIT_BIN" rev-parse HEAD)
-    if [ -n "$("$GIT_BIN" status --porcelain --untracked-files=all)" ]; then
+    local status
+    if ! head=$("$GIT_BIN" rev-parse HEAD 2>/dev/null); then
+        workflow_die "could not read HEAD" 1
+    fi
+    if ! status=$("$GIT_BIN" status --porcelain --untracked-files=all 2>/dev/null); then
+        workflow_die "could not read the working tree status" 1
+    fi
+    if [ -n "$status" ]; then
         dirty=yes
     else
         dirty=no
@@ -116,8 +125,16 @@ state_unchanged() {
     local expected_dirty=$2
     local head
     local dirty
-    head=$("$GIT_BIN" rev-parse HEAD)
-    if [ -n "$("$GIT_BIN" status --porcelain --untracked-files=all)" ]; then
+    local status
+    if ! head=$("$GIT_BIN" rev-parse HEAD 2>/dev/null); then
+        printf 'validate: could not read HEAD after the checks\n' >&2
+        return 1
+    fi
+    if ! status=$("$GIT_BIN" status --porcelain --untracked-files=all 2>/dev/null); then
+        printf 'validate: could not read the working tree status after the checks\n' >&2
+        return 1
+    fi
+    if [ -n "$status" ]; then
         dirty=yes
     else
         dirty=no
@@ -215,12 +232,18 @@ run_range() {
         || workflow_die "base is not an ancestor of head" 1
 
     local commits
+    local base_sha
+    local head_sha
+    local current_commit
     commits=$("$GIT_BIN" rev-list --count "$base..$head")
+    base_sha=$("$GIT_BIN" rev-parse "$base^{commit}")
+    head_sha=$("$GIT_BIN" rev-parse "$head^{commit}")
+    current_commit=$("$GIT_BIN" rev-parse HEAD)
     printf 'validate: repository=%s\n' "$root"
-    printf 'validate: base_sha=%s\n' "$("$GIT_BIN" rev-parse "$base^{commit}")"
-    printf 'validate: head_sha=%s\n' "$("$GIT_BIN" rev-parse "$head^{commit}")"
+    printf 'validate: base_sha=%s\n' "$base_sha"
+    printf 'validate: head_sha=%s\n' "$head_sha"
     printf 'validate: commits=%s\n' "$commits"
-    printf 'validate: current_commit=%s\n' "$("$GIT_BIN" rev-parse HEAD)"
+    printf 'validate: current_commit=%s\n' "$current_commit"
     printf 'validate: diffstat_begin\n'
     "$GIT_BIN" diff --stat "$base...$head"
     printf 'validate: diffstat_end\n'

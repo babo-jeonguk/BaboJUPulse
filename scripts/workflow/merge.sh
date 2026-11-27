@@ -28,6 +28,7 @@ set -euo pipefail
 
 WORKFLOW_NAME=merge
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=scripts/workflow/common.sh
 source "$script_dir/common.sh"
 
 usage() {
@@ -82,15 +83,19 @@ evaluate() {
         --jq '[.number, .state, .isDraft, .baseRefName, .headRefOid, .headRefName, (.headRepositoryOwner.login // ""), (.headRepository.name // ""), (.mergeable // ""), (.mergeStateStatus // ""), (.url // "")] | join("\u001f")' 2>/dev/null) \
         || workflow_die "could not read pull request #$pr" 1
 
-    local number state is_draft base_ref head_sha head_ref head_owner head_repo mergeable merge_state url
-    IFS=$'\x1f' read -r number state is_draft base_ref head_sha head_ref head_owner head_repo mergeable merge_state url <<< "$record"
+    local number state is_draft base_ref head_sha head_ref mergeable merge_state url
+    local head_matches=no
+    IFS=$'\x1f' read -r number state is_draft base_ref head_sha head_ref _ _ mergeable merge_state url <<< "$record"
+    if [ "$head_sha" = "$verified_sha" ]; then
+        head_matches=yes
+    fi
 
     printf 'merge: repository=%s\n' "$actual_repository"
     printf 'merge: pr=%s state=%s draft=%s url=%s\n' "$number" "$state" "$is_draft" "$url"
     printf 'merge: base=%s head=%s\n' "$base_ref" "$head_ref"
     printf 'merge: verified_sha=%s\n' "$verified_sha"
     printf 'merge: head_sha=%s\n' "$head_sha"
-    printf 'merge: head_matches=%s\n' "$([ "$head_sha" = "$verified_sha" ] && printf yes || printf no)"
+    printf 'merge: head_matches=%s\n' "$head_matches"
     printf 'merge: mergeable=%s merge_state=%s\n' "$mergeable" "$merge_state"
 
     local blocked=0

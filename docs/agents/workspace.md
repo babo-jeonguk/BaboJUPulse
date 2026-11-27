@@ -41,7 +41,7 @@ The script verifies the GitHub repository, reads the issue and its readiness lab
 
 Use `--repository <owner/name>` when the working copy's remote is not the target repository. If the script reports `action=reuse`, stop: use the existing workspace instead of creating a duplicate. If it reports a dirty worktree, inspect and preserve the content before continuing.
 
-A shell script does not have direct access to an agent's Paseo MCP tools. The script performs the deterministic preflight and produces the parameters; the agent performs the workspace operation.
+A shell script does not have direct access to an agent's Paseo MCP tools. The script performs the deterministic preflight and produces the parameters; the agent performs the workspace operation. The preflight requires `jq` for Paseo JSON parsing and fails explicitly when it is unavailable.
 
 ### 2. Create or reuse the Paseo workspace
 

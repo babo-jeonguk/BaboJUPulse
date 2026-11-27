@@ -45,7 +45,7 @@ Closes #
 | Repository policy | `dotnet test ... --filter "Category=RepositoryPolicy"` |  |
 | Documentation | `bash scripts/test-check-documentation.sh` and `bash scripts/check-documentation.sh` |  |
 | Public content | `bash scripts/test-public-content.sh` and `bash scripts/check-public-content.sh --tracked` |  |
-| Workflow scripts | `bash scripts/test-workflow.sh` |  |
+| Workflow scripts | `bash scripts/check-workflow-shell.sh` and `bash scripts/test-workflow.sh` |  |
 
 - **Not applicable:**
 - **Unverified:** Include Windows runtime behavior that was not exercised.

@@ -59,7 +59,9 @@ workflow_repo_root() {
 workflow_require_clean_tree() {
     local root=$1
     local status
-    status=$("$GIT_BIN" -C "$root" status --porcelain --untracked-files=all)
+    if ! status=$("$GIT_BIN" -C "$root" status --porcelain --untracked-files=all 2>/dev/null); then
+        workflow_die "could not read the working tree status" 1
+    fi
     if [ -n "$status" ]; then
         workflow_die "working tree is not clean; commit or preserve the changes before continuing" 1
     fi
@@ -148,14 +150,21 @@ workflow_repository_from_url() {
     local url=${1:-}
     local rest owner repo
     case "$url" in
+        *://*)
+            rest=${url#*://}
+            rest=${rest##*@}
+            case "$rest" in
+                github.com:*)
+                    rest=${rest#github.com:}
+                    case "$rest" in
+                        [0-9]*/*) rest=${rest#*/} ;;
+                    esac
+                    ;;
+                github.com/*) rest=${rest#github.com/} ;;
+                *) return 1 ;;
+            esac
+            ;;
         git@github.com:*) rest=${url#git@github.com:} ;;
-        ssh://git@github.com:*) rest=${url#ssh://git@github.com:}; rest=${rest#*/} ;;
-        ssh://git@github.com/*) rest=${url#ssh://git@github.com/} ;;
-        ssh://github.com/*) rest=${url#ssh://github.com/} ;;
-        git+ssh://git@github.com/*) rest=${url#git+ssh://git@github.com/} ;;
-        https://github.com/*) rest=${url#https://github.com/} ;;
-        http://github.com/*) rest=${url#http://github.com/} ;;
-        git://github.com/*) rest=${url#git://github.com/} ;;
         github.com/*) rest=${url#github.com/} ;;
         *) return 1 ;;
     esac
@@ -179,21 +188,22 @@ workflow_remote_urls() {
     local root=$1
     local remote=$2
     local kind=${3:-fetch}
-    local key="remote.$remote.url"
     local output
-    if [ "$kind" = "push" ]; then
-        key="remote.$remote.pushurl"
-        if ! output=$("$GIT_BIN" -C "$root" config --get-all "$key" 2>/dev/null); then
-            key="remote.$remote.url"
-            output=$("$GIT_BIN" -C "$root" config --get-all "$key" 2>/dev/null) \
-                || return 1
-        fi
-    else
-        output=$("$GIT_BIN" -C "$root" config --get-all "$key" 2>/dev/null) \
-            || return 1
-    fi
+    case "$kind" in
+        fetch)
+            if ! output=$("$GIT_BIN" -C "$root" remote get-url --all "$remote" 2>/dev/null); then
+                return 2
+            fi
+            ;;
+        push)
+            if ! output=$("$GIT_BIN" -C "$root" remote get-url --push --all "$remote" 2>/dev/null); then
+                return 2
+            fi
+            ;;
+        *) return 2 ;;
+    esac
     if [ -z "$output" ]; then
-        return 1
+        return 2
     fi
     printf '%s\n' "$output"
 }
@@ -234,49 +244,106 @@ workflow_verify_repository_identity() {
     printf '%s' "$actual"
 }
 
+workflow_worktree_records() {
+    local root=$1
+    local listing
+    if ! listing=$("$GIT_BIN" -C "$root" worktree list --porcelain 2>/dev/null); then
+        return 2
+    fi
+    printf '%s\n' "$listing" | awk '
+        function emit() {
+            if (path != "") {
+                print path "\037" branch
+            }
+            path = ""
+            branch = ""
+        }
+        /^worktree / { emit(); path = substr($0, 10); next }
+        /^branch / {
+            branch = substr($0, 8)
+            sub(/^refs\/heads\//, "", branch)
+            next
+        }
+        /^detached$/ { branch = ""; next }
+        /^$/ { emit() }
+        END { emit() }
+    '
+}
+
 workflow_worktree_for_branch() {
     local branch=$1
-    "$GIT_BIN" worktree list --porcelain \
-        | awk -v ref="refs/heads/$branch" '
-            $1 == "worktree" { path = substr($0, 10) }
-            $1 == "branch" && $2 == ref { print path; exit }
-        '
+    local records path registered_branch
+    if ! records="$(workflow_worktree_records "$PWD")"; then
+        return 2
+    fi
+    while IFS=$'\x1f' read -r path registered_branch; do
+        [ -n "$path" ] || continue
+        if [ "$registered_branch" = "$branch" ]; then
+            printf '%s' "$path"
+            return 0
+        fi
+    done <<< "$records"
+    return 0
 }
 
 workflow_worktree_branch_registered() {
     local root=$1
     local wanted=$2
-    "$GIT_BIN" -C "$root" worktree list --porcelain \
-        | awk -v wanted="$wanted" '
-            $1 == "worktree" { path = substr($0, 10); branch = "" }
-            $1 == "branch" { branch = $2 }
-            $1 == "" && path == wanted {
-                sub(/^refs\/heads\//, "", branch)
-                print branch
-                found = 1
-                exit
-            }
-            END {
-                if (!found && path == wanted) {
-                    sub(/^refs\/heads\//, "", branch)
-                    print branch
-                }
-            }
-        '
+    local records path registered_branch
+    if ! records="$(workflow_worktree_records "$root")"; then
+        return 2
+    fi
+    while IFS=$'\x1f' read -r path registered_branch; do
+        [ -n "$path" ] || continue
+        if [ "$path" = "$wanted" ]; then
+            printf '%s' "$registered_branch"
+            return 0
+        fi
+    done <<< "$records"
+    return 0
 }
 
 workflow_main_worktree() {
-    "$GIT_BIN" worktree list --porcelain \
-        | awk '
-            $1 == "worktree" { path = substr($0, 10) }
-            $1 == "branch" && $2 == "refs/heads/main" { print path; exit }
-        '
+    local records path branch
+    if ! records="$(workflow_worktree_records "$PWD")"; then
+        return 2
+    fi
+    while IFS=$'\x1f' read -r path branch; do
+        [ -n "$path" ] || continue
+        if [ "$branch" = "main" ]; then
+            printf '%s' "$path"
+            return 0
+        fi
+    done <<< "$records"
+    return 0
+}
+
+workflow_worktree_registered() {
+    local root=$1
+    local wanted=$2
+    local records path branch
+    if ! records="$(workflow_worktree_records "$root")"; then
+        return 2
+    fi
+    while IFS=$'\x1f' read -r path branch; do
+        [ -n "$path" ] || continue
+        if [ "$path" = "$wanted" ]; then
+            return 0
+        fi
+    done <<< "$records"
+    return 1
 }
 
 workflow_branch_exists() {
     local root=$1
     local branch=$2
-    "$GIT_BIN" -C "$root" show-ref --verify --quiet "refs/heads/$branch"
+    local status=0
+    "$GIT_BIN" -C "$root" show-ref --verify --quiet "refs/heads/$branch" || status=$?
+    case "$status" in
+        0) return 0 ;;
+        1) return 1 ;;
+        *) return 2 ;;
+    esac
 }
 
 workflow_remote_branch_sha() {
@@ -291,10 +358,11 @@ workflow_remote_branch_sha() {
 
 workflow_expand_path() {
     local path=${1:-}
-    case "$path" in
-        "~") path=$HOME ;;
-        "~/"*) path="$HOME/${path#\~/}" ;;
-    esac
+    if [ "$path" = '~' ]; then
+        path=$HOME
+    elif [ "${path#\~/}" != "$path" ]; then
+        path="$HOME/${path#\~/}"
+    fi
     case "$path" in
         [A-Za-z]:\\*) path=${path//\\//} ;;
     esac
@@ -359,7 +427,7 @@ workflow_reproducible_output_file() {
                 *.AssemblyInfo.cs|*.AssemblyAttributes.cs|*.GlobalUsings.g.cs|*.g.cs)
                     return 0
                     ;;
-                *.nuget.g.props|*.nuget.g.targets|*.nuget.dgspec.json|project.assets.json|project.nuget.cache)
+                *.nuget.g.props|*.nuget.g.targets|*.nuget.dgspec.json|project.assets.json)
                     return 0
                     ;;
                 *.GeneratedMSBuildEditorConfig.editorconfig|*.FileListAbsolute.txt|*.Up2Date|*.binlog)
@@ -419,11 +487,15 @@ workflow_worktree_status() {
     if [ ! -d "$path" ]; then
         return 1
     fi
-    tracked=$("$GIT_BIN" -C "$path" status --porcelain --untracked-files=all)
+    if ! tracked=$("$GIT_BIN" -C "$path" status --porcelain --untracked-files=all 2>/dev/null); then
+        return 2
+    fi
     if [ -n "$tracked" ]; then
         return 1
     fi
-    ignored=$("$GIT_BIN" -C "$path" status --ignored --short --untracked-files=all)
+    if ! ignored=$("$GIT_BIN" -C "$path" status --ignored --short --untracked-files=all 2>/dev/null); then
+        return 2
+    fi
     if [ -z "$ignored" ]; then
         return 0
     fi
@@ -450,9 +522,13 @@ workflow_worktree_status() {
 
 workflow_remove_reproducible_output() {
     local path=$1
+    local ignored
     local line
     local entry
     local target
+    if ! ignored=$("$GIT_BIN" -C "$path" status --ignored --short --untracked-files=all 2>/dev/null); then
+        return 2
+    fi
     while IFS= read -r line; do
         [ -n "$line" ] || continue
         entry=${line#?? }
@@ -466,7 +542,8 @@ workflow_remove_reproducible_output() {
             continue
         fi
         rm -rf -- "$target"
-    done < <("$GIT_BIN" -C "$path" status --ignored --short --untracked-files=all)
+    done <<< "$ignored"
+    return 0
 }
 
 workflow_paseo_workspaces_json() {
@@ -474,10 +551,20 @@ workflow_paseo_workspaces_json() {
     if ! output=$("$PASEO_BIN" workspace ls --json 2>/dev/null); then
         return 2
     fi
-    case "$output" in
-        \[*\]) ;;
-        *) return 2 ;;
-    esac
+    printf '%s' "$output"
+}
+
+workflow_paseo_json_records() {
+    local json=$1
+    local filter=$2
+    local output
+    if ! command -v jq >/dev/null 2>&1; then
+        printf '%s: required command is unavailable: jq\n' "${WORKFLOW_NAME:-workflow}" >&2
+        return 2
+    fi
+    if ! output=$(printf '%s' "$json" | jq -s -r "$filter" 2>/dev/null); then
+        return 2
+    fi
     printf '%s' "$output"
 }
 
@@ -486,168 +573,24 @@ workflow_paseo_workspaces() {
     if ! output="$(workflow_paseo_workspaces_json)"; then
         return 2
     fi
-    printf '%s\n' "$output" | awk '
-        function hexval(c,    digits) {
-            digits = "0123456789abcdef"
-            c = tolower(c)
-            return index(digits, c) - 1
-        }
-        function decode(s,    out, i, c, n, code) {
-            out = ""
-            for (i = 1; i <= length(s); i++) {
-                c = substr(s, i, 1)
-                if (c != "\\") {
-                    out = out c
-                    continue
-                }
-                i++
-                if (i > length(s)) {
-                    break
-                }
-                c = substr(s, i, 1)
-                if (c == "\"") out = out "\""
-                else if (c == "\\") out = out "\\"
-                else if (c == "/") out = out "/"
-                else if (c == "b") out = out "\b"
-                else if (c == "f") out = out "\f"
-                else if (c == "n") out = out "\n"
-                else if (c == "r") out = out "\r"
-                else if (c == "t") out = out "\t"
-                else if (c == "u") {
-                    code = 0
-                    for (n = 1; n <= 4; n++) {
-                        code = code * 16 + hexval(substr(s, i + n, 1))
-                    }
-                    if (code > 0 && code < 128) {
-                        out = out sprintf("%c", code)
-                    } else if (code >= 128) {
-                        decode_bad = 1
-                    }
-                    i += 4
-                } else {
-                    out = out c
-                }
-            }
-            return out
-        }
-        function split_objects(text, objects,    i, c, instring, escape, depth, start, count) {
-            count = 0
-            instring = 0
-            escape = 0
-            depth = 0
-            start = 0
-            for (i = 1; i <= length(text); i++) {
-                c = substr(text, i, 1)
-                if (instring) {
-                    if (escape) escape = 0
-                    else if (c == "\\") escape = 1
-                    else if (c == "\"") instring = 0
-                    continue
-                }
-                if (c == "\"") {
-                    instring = 1
-                    continue
-                }
-                if (c == "{") {
-                    depth++
-                    if (depth == 1) start = i
-                    continue
-                }
-                if (c == "}" && depth > 0) {
-                    depth--
-                    if (depth == 0 && start > 0) {
-                        objects[++count] = substr(text, start, i - start + 1)
-                        start = 0
-                    }
-                }
-            }
-            return count
-        }
-        function object_field(obj, wanted,    i, c, ch, depth, key, text, j, value) {
-            depth = 0
-            key = ""
-            object_field_type = ""
-            for (i = 1; i <= length(obj); i++) {
-                c = substr(obj, i, 1)
-                if (c == "{") {
-                    depth++
-                    continue
-                }
-                if (c == "}") {
-                    depth--
-                    continue
-                }
-                if (depth != 1) continue
-                if (c == "\"") {
-                    text = ""
-                    i++
-                    while (i <= length(obj)) {
-                        ch = substr(obj, i, 1)
-                        if (ch == "\\") {
-                            text = text ch substr(obj, i + 1, 1)
-                            i += 2
-                            continue
-                        }
-                        if (ch == "\"") break
-                        text = text ch
-                        i++
-                    }
-                    j = i + 1
-                    while (j <= length(obj) && substr(obj, j, 1) ~ /[ \t\r\n]/) j++
-                    if (substr(obj, j, 1) == ":") {
-                        key = text
-                        i = j
-                        while (i + 1 <= length(obj) && substr(obj, i + 1, 1) ~ /[ \t\r\n]/) i++
-                        continue
-                    }
-                    if (key == wanted) {
-                        object_field_type = "string"
-                        return decode(text)
-                    }
-                    continue
-                }
-                if (key == wanted) {
-                    value = ""
-                    while (i <= length(obj)) {
-                        ch = substr(obj, i, 1)
-                        if (ch == "," || ch == "}") break
-                        value = value ch
-                        i++
-                    }
-                    gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", value)
-                    object_field_type = "other"
-                    return value
-                }
-            }
-            return ""
-        }
-        function is_empty_array(text,    compact) {
-            compact = text
-            gsub(/[ \t\r\n]/, "", compact)
-            return compact == "[]"
-        }
-        { text = text $0 "\n" }
-        END {
-            sep = "\037"
-            count = split_objects(text, objects)
-            if (count == 0) {
-                if (!is_empty_array(text)) exit 2
-                exit 0
-            }
-            bad = 0
-            for (i = 1; i <= count; i++) {
-                id = object_field(objects[i], "workspaceId")
-                id_type = object_field_type
-                cwd = object_field(objects[i], "cwd")
-                cwd_type = object_field_type
-                if (id == "" || cwd == "" || id_type != "string" || cwd_type != "string") {
-                    bad = 1
-                    continue
-                }
-                print id sep cwd sep object_field(objects[i], "project") sep object_field(objects[i], "isolation")
-            }
-            if (bad || decode_bad) exit 2
-        }
+    workflow_paseo_json_records "$output" '
+        def safe_string:
+            if type == "string"
+            then (explode | any(. < 32 or . == 127) | not)
+            else false
+            end;
+        def safe_nonempty: safe_string and ((length) > 0);
+        if length != 1 then error("expected exactly one JSON value") else .[0] end
+        | if type != "array" then error("expected a JSON array") else . end
+        | if ([.[].workspaceId] | length) != ([.[].workspaceId] | unique | length)
+            then error("duplicate workspace identity") else . end
+        | if ([.[].cwd] | length) != ([.[].cwd] | unique | length)
+            then error("duplicate workspace cwd") else . end
+        | .[]
+        | if ((.workspaceId | safe_nonempty) and (.cwd | safe_nonempty))
+            then [.workspaceId, .cwd] | join("\u001f")
+            else error("invalid workspace record")
+            end
     '
 }
 
@@ -655,15 +598,15 @@ workflow_paseo_workspace_record() {
     local id=$1
     local records
     local status=0
-    local record_id record_cwd record_project record_isolation
+    local record_id record_cwd
     records="$(workflow_paseo_workspaces)" || status=$?
     if [ "$status" -ne 0 ]; then
         return "$status"
     fi
-    while IFS=$'\x1f' read -r record_id record_cwd record_project record_isolation; do
+    while IFS=$'\x1f' read -r record_id record_cwd; do
         [ -n "$record_id" ] || continue
         if [ "$record_id" = "$id" ]; then
-            printf '%s\x1f%s\x1f%s\x1f%s' "$record_id" "$record_cwd" "$record_project" "$record_isolation"
+            printf '%s\x1f%s' "$record_id" "$record_cwd"
             return 0
         fi
     done <<< "$records"
@@ -674,28 +617,33 @@ workflow_paseo_workspace_id_for_cwd() {
     local wanted=$1
     local records
     local status=0
-    local record_id record_cwd record_project record_isolation
+    local record_id record_cwd
     local normalized
+    local matches=0
+    local matched_id=""
     records="$(workflow_paseo_workspaces)" || status=$?
     if [ "$status" -ne 0 ]; then
         return "$status"
     fi
-    while IFS=$'\x1f' read -r record_id record_cwd record_project record_isolation; do
+    while IFS=$'\x1f' read -r record_id record_cwd; do
         [ -n "$record_id" ] || continue
         normalized="$(workflow_normalize_path "$record_cwd")"
         if [ "$normalized" = "$wanted" ]; then
-            printf '%s' "$record_id"
-            return 0
+            matches=$((matches + 1))
+            matched_id=$record_id
         fi
     done <<< "$records"
-    return 0
+    case "$matches" in
+        0) return 0 ;;
+        1) printf '%s' "$matched_id"; return 0 ;;
+        *) return 3 ;;
+    esac
 }
 
 workflow_paseo_workspace_exists() {
     local id=$1
-    local record
     local status=0
-    record="$(workflow_paseo_workspace_record "$id")" || status=$?
+    workflow_paseo_workspace_record "$id" >/dev/null || status=$?
     return "$status"
 }
 
@@ -704,10 +652,6 @@ workflow_paseo_agents_json() {
     if ! output=$("$PASEO_BIN" ls --json --all --background 2>/dev/null); then
         return 2
     fi
-    case "$output" in
-        \[*\]) ;;
-        *) return 2 ;;
-    esac
     printf '%s' "$output"
 }
 
@@ -716,174 +660,25 @@ workflow_paseo_agents() {
     if ! output="$(workflow_paseo_agents_json)"; then
         return 2
     fi
-    printf '%s\n' "$output" | awk '
-        function hexval(c,    digits) {
-            digits = "0123456789abcdef"
-            c = tolower(c)
-            return index(digits, c) - 1
-        }
-        function decode(s,    out, i, c, n, code) {
-            out = ""
-            for (i = 1; i <= length(s); i++) {
-                c = substr(s, i, 1)
-                if (c != "\\") {
-                    out = out c
-                    continue
-                }
-                i++
-                if (i > length(s)) {
-                    break
-                }
-                c = substr(s, i, 1)
-                if (c == "\"") out = out "\""
-                else if (c == "\\") out = out "\\"
-                else if (c == "/") out = out "/"
-                else if (c == "b") out = out "\b"
-                else if (c == "f") out = out "\f"
-                else if (c == "n") out = out "\n"
-                else if (c == "r") out = out "\r"
-                else if (c == "t") out = out "\t"
-                else if (c == "u") {
-                    code = 0
-                    for (n = 1; n <= 4; n++) {
-                        code = code * 16 + hexval(substr(s, i + n, 1))
-                    }
-                    if (code > 0 && code < 128) {
-                        out = out sprintf("%c", code)
-                    } else if (code >= 128) {
-                        decode_bad = 1
-                    }
-                    i += 4
-                } else {
-                    out = out c
-                }
-            }
-            return out
-        }
-        function split_objects(text, objects,    i, c, instring, escape, depth, start, count) {
-            count = 0
-            instring = 0
-            escape = 0
-            depth = 0
-            start = 0
-            for (i = 1; i <= length(text); i++) {
-                c = substr(text, i, 1)
-                if (instring) {
-                    if (escape) escape = 0
-                    else if (c == "\\") escape = 1
-                    else if (c == "\"") instring = 0
-                    continue
-                }
-                if (c == "\"") {
-                    instring = 1
-                    continue
-                }
-                if (c == "{") {
-                    depth++
-                    if (depth == 1) start = i
-                    continue
-                }
-                if (c == "}" && depth > 0) {
-                    depth--
-                    if (depth == 0 && start > 0) {
-                        objects[++count] = substr(text, start, i - start + 1)
-                        start = 0
-                    }
-                }
-            }
-            return count
-        }
-        function object_field(obj, wanted,    i, c, ch, depth, key, text, j, value) {
-            depth = 0
-            key = ""
-            object_field_type = ""
-            for (i = 1; i <= length(obj); i++) {
-                c = substr(obj, i, 1)
-                if (c == "{") {
-                    depth++
-                    continue
-                }
-                if (c == "}") {
-                    depth--
-                    continue
-                }
-                if (depth != 1) continue
-                if (c == "\"") {
-                    text = ""
-                    i++
-                    while (i <= length(obj)) {
-                        ch = substr(obj, i, 1)
-                        if (ch == "\\") {
-                            text = text ch substr(obj, i + 1, 1)
-                            i += 2
-                            continue
-                        }
-                        if (ch == "\"") break
-                        text = text ch
-                        i++
-                    }
-                    j = i + 1
-                    while (j <= length(obj) && substr(obj, j, 1) ~ /[ \t\r\n]/) j++
-                    if (substr(obj, j, 1) == ":") {
-                        key = text
-                        i = j
-                        while (i + 1 <= length(obj) && substr(obj, i + 1, 1) ~ /[ \t\r\n]/) i++
-                        continue
-                    }
-                    if (key == wanted) {
-                        object_field_type = "string"
-                        return decode(text)
-                    }
-                    continue
-                }
-                if (key == wanted) {
-                    value = ""
-                    while (i <= length(obj)) {
-                        ch = substr(obj, i, 1)
-                        if (ch == "," || ch == "}") break
-                        value = value ch
-                        i++
-                    }
-                    gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", value)
-                    object_field_type = "other"
-                    return value
-                }
-            }
-            return ""
-        }
-        function is_empty_array(text,    compact) {
-            compact = text
-            gsub(/[ \t\r\n]/, "", compact)
-            return compact == "[]"
-        }
-        { text = text $0 "\n" }
-        END {
-            sep = "\037"
-            count = split_objects(text, objects)
-            if (count == 0) {
-                if (!is_empty_array(text)) exit 2
-                exit 0
-            }
-            bad = 0
-            for (i = 1; i <= count; i++) {
-                id = object_field(objects[i], "id")
-                id_type = object_field_type
-                status = object_field(objects[i], "status")
-                status_type = object_field_type
-                cwd = object_field(objects[i], "cwd")
-                cwd_type = object_field_type
-                workspace = object_field(objects[i], "workspaceId")
-                workspace_type = object_field_type
-                name = object_field(objects[i], "name")
-                name_type = object_field_type
-                if (id == "" || id_type != "string" || status_type != "string" || cwd_type != "string" || workspace_type != "string" || name_type != "string") {
-                    bad = 1
-                    continue
-                }
-                print id sep status sep cwd sep workspace sep name
-            }
-            if (bad || decode_bad) exit 2
-        }
+    workflow_paseo_json_records "$output" '
+        def safe_string:
+            if type == "string"
+            then (explode | any(. < 32 or . == 127) | not)
+            else false
+            end;
+        def safe_nonempty: safe_string and ((length) > 0);
+        if length != 1 then error("expected exactly one JSON value") else .[0] end
+        | if type != "array" then error("expected a JSON array") else . end
+        | if ([.[].id] | length) != ([.[].id] | unique | length)
+            then error("duplicate agent identity") else . end
+        | .[]
+        | if ((.id | safe_nonempty)
+              and (.status | safe_string)
+              and (.cwd | safe_string)
+              and (.workspaceId | safe_string))
+            then [.id, .status, .cwd, .workspaceId] | join("\u001f")
+            else error("invalid agent record")
+            end
     '
 }
 

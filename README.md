@@ -59,11 +59,19 @@ dotnet test BaboJUPulse.slnx -c Release --no-build
 
 CI runs the same gates on `windows-latest`. Warnings are errors, nullable reference types are enabled, formatting is verified rather than auto-applied, and restore audits direct and transitive packages. Selected analyzers reject blocking waits, dispatcher blocking, TLS validation bypass, arbitrary command strings, and excessive complexity or coupling. Suppression approval, gate integrity, and known limitations are in [Quality gates](docs/agents/quality-gates.md); the tool decisions are in [ADR-0002](docs/adr/0002-static-analysis-and-architecture-enforcement.md).
 
+## Contributing
+
+Bug reports and feature requests are welcome through the repository issue templates. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. It covers issue search, branch setup, validation, review, privacy, and licensing. You may use any editor, IDE, or local workflow.
+
+The internal agent workflow is described in [Development workflow](docs/agents/development-workflow.md). It is not a requirement for external contributors.
+
 ## Documentation
 
 - [Product scope](docs/product-scope.md) — intended capabilities, constraints, and non-goals.
 - [Architecture](docs/architecture.md) — current shape and the boundaries future features must respect.
 - [Development](docs/development.md) — setup, build/run, tests, and troubleshooting.
+- [Development workflow](docs/agents/development-workflow.md) — issue-to-merge sequence and stage transitions.
+- [Issue tracker](docs/agents/issue-tracker.md) and [triage labels](docs/agents/triage-labels.md) — issue readiness and repository labels.
 - [GitHub operations](docs/agents/github-operations.md) — issues, PRs, commits, publication, and local-only artifacts.
 - [Quality gates](docs/agents/quality-gates.md) — verification, analyzer enforcement, suppressions, and limitations.
 - [Architecture decisions](docs/adr/) — accepted decisions and their rationale.

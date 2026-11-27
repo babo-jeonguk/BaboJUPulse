@@ -77,9 +77,20 @@ dotnet test tests/BaboJUPulse.ArchitectureTests/BaboJUPulse.ArchitectureTests.cs
 
 CI treats a test run with no matching tests as an error, so removing the policy tests cannot turn the gate into a silent pass.
 
+Run the public-content checker and its synthetic tests directly:
+
+```bash
+bash scripts/test-public-content.sh
+bash scripts/check-public-content.sh --tracked
+```
+
+The checker reports only a rule identifier, safe file label, and line number. It never prints the matching text.
+
 ## Contribution workflow
 
-Branch naming, commit messages, issue and PR procedure, merge policy, public communication, and local-only artifact rules are in [GitHub operations](agents/github-operations.md). Required validation and review gates are in [Quality gates](agents/quality-gates.md).
+External contributors start at [CONTRIBUTING.md](../CONTRIBUTING.md). They may use any editor, IDE, or local workflow; Paseo and the internal agent orchestration are not required.
+
+The internal sequence is defined in [Development workflow](agents/development-workflow.md): issue and readiness, isolated workspace, slice-based implementation, independent review, PR, and merge. Branch naming, commit messages, publication, and local-only artifact rules are in [GitHub operations](agents/github-operations.md). Required validation and review gates are in [Quality gates](agents/quality-gates.md).
 
 ## Windows-specific validation
 
@@ -101,7 +112,8 @@ Branch naming, commit messages, issue and PR procedure, merge policy, public com
 | `dotnet format` reports changes | Code does not match `.editorconfig` | Format only the changed files, review the diff, and commit the formatting |
 | Commit rejected by `commit-msg` | Invalid Conventional Commit, too-long subject, or local-only reference | Fix the message; do not use `--no-verify` |
 | CI cannot find the SDK | `global.json` pins an unavailable patch | Update `global.json` in a dedicated PR |
-| Repository-policy test fails | A source suppression, nested config, disabled analyzer, weakened threshold, or conditional CI step was introduced | Fix the code/configuration or request maintainer approval under [Quality gates](agents/quality-gates.md) |
+| Repository-policy test fails | A source suppression, nested config, disabled analyzer, weakened threshold, conditional CI step, or null-forgiving operator was introduced | Fix the code/configuration or request maintainer approval under [Quality gates](agents/quality-gates.md) |
+| Public-content checker rejects text | A concrete local-only artifact path, local absolute path, or obvious secret pattern matched | Use the reported rule and line to fix the text locally; do not paste the matching value into a comment |
 
 ## Releases
 

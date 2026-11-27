@@ -17,12 +17,21 @@ Read the linked document before the matching action. Do not load every document.
 
 | Task | Authoritative document |
 | --- | --- |
+| Overall sequence, stage transitions, escalation | [Development workflow](docs/agents/development-workflow.md) |
 | Product intent, scope, provider limits | [Product scope](docs/product-scope.md) |
 | Architecture boundaries and decisions | [Architecture](docs/architecture.md), [ADRs](docs/adr/) |
 | Code rules and prohibited patterns | [Coding standards](CODING_STANDARDS.md) |
 | Setup, build, run, tests, troubleshooting | [Development](docs/development.md) |
 | Verification, suppressions, analyzer/CI changes | [Quality gates](docs/agents/quality-gates.md) |
+| Issue creation, triage, readiness, closure | [Issue tracker](docs/agents/issue-tracker.md), [triage labels](docs/agents/triage-labels.md) |
+| Worktree, branch, and base preparation | [Workspace](docs/agents/workspace.md) |
+| Slice-based implementation and tests | [Implementation](docs/agents/implementation.md) |
+| Independent review and finding records | [Code review](docs/agents/code-review.md) |
+| Remediation, re-review, loop limits | [Review remediation](docs/agents/review-remediation.md) |
+| PR preparation, evidence, and CI | [Pull request](docs/agents/pull-request.md) |
+| Merge, post-merge verification, cleanup | [PR merge](docs/agents/pr-merge.md) |
 | Issues, PRs, comments, commits, publication | [GitHub operations](docs/agents/github-operations.md) |
+| External contributor entry point | [Contributing](CONTRIBUTING.md) |
 | Documentation map | [Docs](docs/README.md), [agent docs](docs/agents/README.md) |
 
 Before claiming completion, run the verification required by the routed quality-gate document and report what you actually ran.

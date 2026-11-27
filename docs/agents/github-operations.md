@@ -11,8 +11,10 @@ Authoritative for repository operations and external publication. It does not de
 ## Issues
 
 - Use the `gh` CLI. Search existing issues before creating a new one.
+- Issue creation, triage, readiness, and closure are owned by [Issue tracker](issue-tracker.md); label meanings and category cardinality are owned by [Triage labels](triage-labels.md).
 - One issue per coherent unit of work. Do not split or merge work arbitrarily.
-- Use only labels that exist in the repository. The templates apply `needs-triage` plus a category label.
+- A new issue starts in `needs-triage`. A completed template is not implementation-ready; triage establishes readiness.
+- Use only labels that exist in the repository.
 - Issue content follows the publication policy below.
 
 ## Branches and commits
@@ -30,11 +32,10 @@ Authoritative for repository operations and external publication. It does not de
 
 ## Pull requests and merge
 
-- Open a PR with the repository template. Keep the body self-contained:
-  - `Summary`: what changed and why, linked to the issue when one exists.
-  - `Evidence`: final commit SHA, commands or CI run links, results, and what was not verified.
-  - `Risk`: blast radius and rollback.
-- The required status check is `build` on `windows-latest`. It runs restore/audit, formatting, build, tests, repository-policy checks, and public-content checks.
+- PR preparation, template use, evidence, and CI verification are owned by [Pull request](pull-request.md). Merge preconditions and cleanup are owned by [PR merge](pr-merge.md).
+- `gh pr create --template` pre-fills from the named file; `--body` overrides it, and API-based creation does not populate repository templates. Start from [`.github/PULL_REQUEST_TEMPLATE.md`](../../.github/PULL_REQUEST_TEMPLATE.md) explicitly.
+- Keep the body self-contained: linked issue, acceptance-criteria coverage, exact reviewed commit SHA, review outcome, actual verification, unverified behavior, risk, and rollback. Do not fabricate a result for a check that did not run.
+- The required status check is `build` on `windows-latest`. It runs restore/audit, formatting, build, tests, repository-policy checks, and public-content checks. The `pull_request` trigger includes `edited`, so a title or body edit is revalidated by CI.
 - CodeQL and dependency review are advisory checks, not required by branch protection.
 - Merge with a merge commit. Squash and rebase merges are disabled; head branches are deleted after merge. Auto-merge is enabled.
 - Required approvals are `0` because the repository has one maintainer. Administrators are subject to branch protection.
@@ -79,9 +80,11 @@ Do not publish:
   bash scripts/check-public-content.sh
   ```
 
-  Run it from Git Bash, WSL, or another Bash environment. The checker rejects concrete `.scratch/` paths, local absolute paths, and obvious credential patterns. It accepts bare `.scratch/` convention mentions.
+  Run it from Git Bash, WSL, or another Bash environment. The checker rejects concrete `.scratch/` paths, local absolute paths, file URLs, obvious credential formats, and private keys. It accepts bare `.scratch/` convention mentions.
+- Checker failure output is redacted. It reports a rule identifier, a safe file label, and a line number. It never prints the matching secret, raw prohibited text, or a local absolute path from the input. Use the reported line to fix the text locally.
 - The local commit hook runs the same checker on commit messages.
-- CI checks the PR title and body, PR commit messages, all tracked text files, and the synthetic checker tests. It is merge-blocking, but it runs **after** the PR content is already visible. It cannot prevent initial disclosure in a PR.
+- CI checks the PR title and body, PR commit messages, all tracked text files, and the synthetic checker tests. It is merge-blocking, but it runs **after** the PR content is already visible. It is post-publication detection, not prevention of initial disclosure.
+- The `pull_request` trigger includes `edited`, so a changed PR title or body is revalidated. Run the local checker before editing; do not rely on CI to protect the first visible version.
 - Tracked Markdown links are checked against Git's actual ignore rules. The publication checker targets the designated `.scratch/` workspace and local absolute paths, not every ignored build output such as `bin/` or `obj/`.
 - Issue and comment publication has no server-side pre-publication guard. The local checker is the practical control; review and edit before posting.
 - GitHub secret scanning and push protection cover known secret formats, not local paths or private context.
@@ -94,3 +97,4 @@ Do not publish:
 - Secret scanning non-provider patterns and validity checks are unavailable on the current plan.
 - The default Actions token is read-only. All Actions are allowed, and commit-SHA pinning is not enforced; workflows use major version tags and Dependabot updates them weekly.
 - Local hooks and agent instructions are not server-side enforcement. A rule that must hold for every contributor belongs in CI or branch protection.
+- A repository-controlled checker is not tamper-proof. An actor who can edit both the content and the checker can weaken both; maintainer review and the separation between implementation and approval are the practical boundary. Do not claim complete tamper resistance or complete prevention of disclosure.

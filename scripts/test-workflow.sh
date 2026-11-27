@@ -285,6 +285,11 @@ if [[ " $* " == *" remote get-url "* ]]; then
     fi
     exec "$real_git" -C "$repo" config --get-all remote.origin.url
 fi
+if [ -n "${STUB_GIT_FAIL_ANCESTRY_SHA:-}" ] \
+    && [[ " $* " == *" merge-base --is-ancestor "* ]] \
+    && [[ " $* " == *"${STUB_GIT_FAIL_ANCESTRY_SHA}"* ]]; then
+    exit 128
+fi
 if [ "${STUB_GIT_FAIL_WORKTREE:-0}" = "1" ] && [[ " $* " == *" worktree list "* ]]; then
     exit 1
 fi
@@ -1257,6 +1262,65 @@ assert_contains "cleanup: worktree=removed" "cleanup ignored build output"
 assert_contains "cleanup: result=pass" "cleanup ignored build output"
 assert_path_missing "$dirty_worktree" "cleanup ignored build output"
 
+# --- Cleanup safety: direct build-output removal failures -------------------
+
+removal_fixture="$fixture/output-removal"
+mkdir -p "$removal_fixture"
+git init -q "$removal_fixture"
+configure_repo "$removal_fixture"
+printf 'removal fixture\n' > "$removal_fixture/file.txt"
+git -C "$removal_fixture" add file.txt
+git -C "$removal_fixture" commit -q -m "chore: output removal fixture"
+printf 'bin/\n' >> "$removal_fixture/.git/info/exclude"
+
+removal_call="$fixture/remove-output.sh"
+cat > "$removal_call" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+source "$1/scripts/workflow/common.sh"
+workflow_remove_reproducible_output "$2"
+STUB
+chmod +x "$removal_call"
+
+mkdir -p "$removal_fixture/bin"
+printf 'generated\n' > "$removal_fixture/bin/output.dll"
+export STUB_GIT_FAIL_STATUS=ignored
+export STUB_GIT_FAIL_STATUS_PATH="$removal_fixture"
+run_at "$removal_fixture" "$removal_call" "$root" "$removal_fixture"
+unset STUB_GIT_FAIL_STATUS STUB_GIT_FAIL_STATUS_PATH
+assert_exit 2 "cleanup output removal ignored status failure"
+assert_path_exists "$removal_fixture/bin/output.dll" \
+    "cleanup output removal ignored status failure"
+
+real_rm=$(command -v rm)
+cat > "$fixture/bin/rm" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "${STUB_FAIL_RM_TARGET:-}" ]; then
+    for arg in "$@"; do
+        if [ "$arg" = "$STUB_FAIL_RM_TARGET" ]; then
+            exit 1
+        fi
+    done
+fi
+exec "${REAL_RM:?}" "$@"
+STUB
+chmod +x "$fixture/bin/rm"
+original_path=$PATH
+export PATH="$fixture/bin:$PATH"
+export REAL_RM="$real_rm"
+export STUB_FAIL_RM_TARGET="$removal_fixture/bin/output.dll"
+run_at "$removal_fixture" "$removal_call" "$root" "$removal_fixture"
+unset STUB_FAIL_RM_TARGET
+export PATH="$original_path"
+assert_exit 3 "cleanup output removal deletion failure"
+assert_path_exists "$removal_fixture/bin/output.dll" \
+    "cleanup output removal deletion failure"
+
+run_at "$removal_fixture" "$removal_call" "$root" "$removal_fixture"
+assert_exit 0 "cleanup output removal success"
+assert_path_missing "$removal_fixture/bin/output.dll" "cleanup output removal success"
+
 # --- Cleanup safety: local branch ancestry before any destructive step ------
 
 unmerged_local_fixture="$fixture/unmerged-local"
@@ -1732,6 +1796,56 @@ assert_exit 1 "cleanup remote branch race"
 assert_contains "cleanup: blocked=remote_branch_delete_failed" "cleanup remote branch race"
 race_ref=$(git -C "$race_seed" ls-remote --heads origin chore/race-ws)
 assert_equals "$race_concurrent" "${race_ref%%[[:space:]]*}" "cleanup remote branch race"
+
+# --- Cleanup safety: unmerged or unverifiable remote branch tips ------------
+
+remote_retain_fixture="$fixture/remote-retain"
+fixture_output=$(make_merged_issue "$remote_retain_fixture" chore/remote-retain "remote retain work")
+IFS=$'\x1f' read -r remote_retain_seed remote_retain_head remote_retain_merge \
+    remote_retain_worktree <<< "$fixture_output"
+printf 'unmerged remote work\n' >> "$remote_retain_worktree/file.txt"
+git -C "$remote_retain_worktree" commit -q -am "feat: unmerged remote work"
+remote_unmerged_sha=$(git -C "$remote_retain_worktree" rev-parse HEAD)
+git -C "$remote_retain_worktree" push -q origin chore/remote-retain
+git -C "$remote_retain_worktree" reset -q --hard "$remote_retain_head"
+
+set_merged_pr 34 "$remote_retain_head" "$remote_retain_merge" chore/remote-retain
+set_paseo_workspace wks_remote_retain "$remote_retain_worktree"
+set_paseo_agents "[]"
+rm -f "$paseo_archived"
+: > "$paseo_log"
+
+run_at "$remote_retain_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 34 --verified-sha "$remote_retain_head" \
+    --workspace-id wks_remote_retain --worktree "$remote_retain_worktree" \
+    --main-worktree "$remote_retain_seed"
+assert_exit 1 "cleanup unmerged remote branch"
+assert_contains "cleanup: blocked=remote_branch_commits_not_merged" \
+    "cleanup unmerged remote branch"
+assert_contains "cleanup: remote_branch=retained reason=commits_not_merged" \
+    "cleanup unmerged remote branch"
+assert_contains "cleanup: result=blocked" "cleanup unmerged remote branch"
+assert_remote_branch_present "$remote_retain_seed" chore/remote-retain \
+    "cleanup unmerged remote branch"
+retained_ref=$(git -C "$remote_retain_seed" ls-remote --heads origin chore/remote-retain)
+assert_equals "$remote_unmerged_sha" "${retained_ref%%[[:space:]]*}" \
+    "cleanup unmerged remote branch tip"
+
+set_merged_pr 34 "$remote_retain_head" "$remote_retain_merge" chore/remote-retain
+export STUB_GIT_FAIL_ANCESTRY_SHA="$remote_unmerged_sha"
+run_at "$remote_retain_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 34 --verified-sha "$remote_retain_head" \
+    --workspace-id wks_remote_retain --worktree "$remote_retain_worktree" \
+    --main-worktree "$remote_retain_seed"
+unset STUB_GIT_FAIL_ANCESTRY_SHA
+assert_exit 1 "cleanup remote ancestry query failure"
+assert_contains "cleanup: blocked=remote_branch_ancestry_failed" \
+    "cleanup remote ancestry query failure"
+assert_contains "cleanup: remote_branch=retained reason=ancestry_failed" \
+    "cleanup remote ancestry query failure"
+assert_contains "cleanup: result=blocked" "cleanup remote ancestry query failure"
+assert_remote_branch_present "$remote_retain_seed" chore/remote-retain \
+    "cleanup remote ancestry query failure"
 
 # --- Cleanup safety: unavailable or malformed state -------------------------
 

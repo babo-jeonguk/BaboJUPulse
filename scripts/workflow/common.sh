@@ -171,8 +171,6 @@ workflow_reproducible_output() {
         bin|bin/*|*/bin|*/bin/*) return 0 ;;
         obj|obj/*|*/obj|*/obj/*) return 0 ;;
         TestResults|TestResults/*|*/TestResults|*/TestResults/*) return 0 ;;
-        artifacts|artifacts/*|*/artifacts|*/artifacts/*) return 0 ;;
-        publish|publish/*|*/publish|*/publish/*) return 0 ;;
         *.binlog) return 0 ;;
         *) return 1 ;;
     esac
@@ -180,11 +178,20 @@ workflow_reproducible_output() {
 
 workflow_worktree_status() {
     local path=$1
+    local allow_output=${2:-no}
     local tracked
+    local ignored
     local line
     local entry
     tracked=$("$GIT_BIN" -C "$path" status --porcelain --untracked-files=all)
     if [ -n "$tracked" ]; then
+        return 1
+    fi
+    ignored=$("$GIT_BIN" -C "$path" status --ignored --short --untracked-files=all)
+    if [ -z "$ignored" ]; then
+        return 0
+    fi
+    if [ "$allow_output" != "yes" ]; then
         return 1
     fi
     while IFS= read -r line; do
@@ -193,7 +200,7 @@ workflow_worktree_status() {
         if ! workflow_reproducible_output "$entry"; then
             return 1
         fi
-    done < <("$GIT_BIN" -C "$path" status --ignored --short --untracked-files=all)
+    done <<< "$ignored"
     return 0
 }
 
@@ -245,7 +252,42 @@ workflow_paseo_workspace_exists() {
     if ! output=$("$PASEO_BIN" workspace ls --json 2>/dev/null); then
         return 2
     fi
-    printf '%s\n' "$output" | grep -Eq "\"workspaceId\"[[:space:]]*:[[:space:]]*\"$id\""
+    printf '%s\n' "$output" | awk -v wanted="$id" '
+        /"workspaceId"/ {
+            value = $0
+            sub(/.*"workspaceId"[[:space:]]*:[[:space:]]*"/, "", value)
+            sub(/".*/, "", value)
+            if (value == wanted) {
+                found = 1
+            }
+        }
+        END {
+            exit(found ? 0 : 1)
+        }
+    '
+}
+
+workflow_paseo_workspace_cwd() {
+    local id=$1
+    local output
+    if ! output=$("$PASEO_BIN" workspace ls --json 2>/dev/null); then
+        return 2
+    fi
+    printf '%s\n' "$output" | awk -v wanted="$id" '
+        /"workspaceId"/ {
+            value = $0
+            sub(/.*"workspaceId"[[:space:]]*:[[:space:]]*"/, "", value)
+            sub(/".*/, "", value)
+            current = value
+        }
+        /"cwd"/ && current == wanted {
+            value = $0
+            sub(/.*"cwd"[[:space:]]*:[[:space:]]*"/, "", value)
+            sub(/".*/, "", value)
+            print value
+            exit
+        }
+    '
 }
 
 workflow_path_is_within() {

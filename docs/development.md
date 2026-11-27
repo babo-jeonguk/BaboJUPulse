@@ -71,9 +71,9 @@ Required checks, suppression approval, analyzer changes, gate integrity, and enf
 | `scripts/workflow/merge.sh inspect` | Read-only merge-readiness inspection against an explicit verified SHA. |
 | `scripts/workflow/merge.sh execute` | Merge only after inspection passes, using the original verified SHA as `--match-head-commit`. |
 | `scripts/workflow/cleanup.sh inspect` | Read-only post-merge cleanup inspection. |
-| `scripts/workflow/cleanup.sh execute` | Verify the merge, delete a safe remote branch, fast-forward local `main`, archive the Paseo workspace, remove a clean worktree, and delete the merged local branch. |
+| `scripts/workflow/cleanup.sh execute` | Verify the merge, delete a safe remote branch, fast-forward local `main`, archive the Paseo workspace, remove a clean worktree, and delete the merged local branch. Use `--remove-build-output` only to remove known reproducible output. |
 
-Run `scripts/workflow/<script>.sh --help` for the exact options. The scripts report the repository, commit, dirty state, checks, and results. A failed required check exits nonzero; a concurrent HEAD or working-tree change during validation exits with status 3. Do not treat a script result as permission to skip review, documentation freshness, or a maintainer decision.
+Run `scripts/workflow/<script>.sh --help` for the exact options. `validate.sh` reports the repository, commit, dirty state, checks, and results. `workspace.sh` reports the base and head plus worktree cleanliness; `merge.sh` and `cleanup.sh` report the PR, SHAs, evaluated conditions, and final state. A failed required check exits nonzero; a concurrent HEAD or working-tree change during validation exits with status 3. Do not treat a script result as permission to skip review, documentation freshness, or a maintainer decision.
 
 Run the workflow-script tests directly:
 

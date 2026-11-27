@@ -14,6 +14,11 @@
 #   --repository <owner/name>  Require this GitHub repository.
 #   --require-check <name>     Add a required check name (repeatable; the default
 #                              set is build and documentation).
+#   --allow-missing-check <name>
+#                              Explicitly allow a missing required check. Use
+#                              only when its unavailability is recorded and a
+#                              local equivalent was verified; a failing check is
+#                              never allowed.
 #   --delete-branch            Also request branch deletion. Prefer cleanup.sh,
 #                              which verifies merge ancestry first.
 #
@@ -25,7 +30,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 source "$script_dir/common.sh"
 
 usage() {
-    sed -n '2,19p' "${BASH_SOURCE[0]}"
+    sed -n '2,25p' "${BASH_SOURCE[0]}"
 }
 
 pr=""
@@ -33,6 +38,7 @@ verified_sha=""
 repository=""
 delete_branch=no
 require_checks=(build documentation)
+allow_missing_checks=()
 
 parse_args() {
     while [ "$#" -gt 0 ]; do
@@ -41,6 +47,7 @@ parse_args() {
             --verified-sha) workflow_option_value "$@"; verified_sha=$2; shift 2 ;;
             --repository) workflow_option_value "$@"; repository=$2; shift 2 ;;
             --require-check) workflow_option_value "$@"; require_checks+=("$2"); shift 2 ;;
+            --allow-missing-check) workflow_option_value "$@"; allow_missing_checks+=("$2"); shift 2 ;;
             --delete-branch) delete_branch=yes; shift ;;
             -h|--help) usage; exit 0 ;;
             *) workflow_usage_error "unknown argument: $1" ;;
@@ -141,8 +148,19 @@ evaluate() {
             fi
         done <<< "$checks_output"
         if [ "$matched" -eq 0 ]; then
-            printf 'merge: check=%s result=missing\n' "$check" >&2
-            blocked=1
+            local allowed=0
+            local candidate
+            for candidate in "${allow_missing_checks[@]}"; do
+                if [ "$candidate" = "$check" ]; then
+                    allowed=1
+                fi
+            done
+            if [ "$allowed" -eq 1 ]; then
+                printf 'merge: check=%s result=allowed-missing\n' "$check"
+            else
+                printf 'merge: check=%s result=missing\n' "$check" >&2
+                blocked=1
+            fi
         elif [ "$passed" -eq 1 ]; then
             printf 'merge: check=%s result=pass\n' "$check"
         fi

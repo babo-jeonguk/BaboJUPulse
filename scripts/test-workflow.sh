@@ -293,6 +293,13 @@ run_at "$fixture" "$root/scripts/workflow/merge.sh" inspect \
     --pr 7 --verified-sha "$merge_head"
 assert_exit 1 "merge inspect default documentation"
 assert_contains "merge: check=documentation result=missing" "merge inspect default documentation"
+
+run_at "$fixture" "$root/scripts/workflow/merge.sh" inspect \
+    --pr 7 --verified-sha "$merge_head" --allow-missing-check documentation
+assert_exit 0 "merge inspect allowed missing"
+assert_contains "merge: check=documentation result=allowed-missing" "merge inspect allowed missing"
+assert_contains "merge: result=ready" "merge inspect allowed missing"
+
 export STUB_CHECKS=$'build\x1fSUCCESS\x1fpass\ndocumentation\x1fSUCCESS\x1fpass\n'
 
 run_at "$fixture" "$root/scripts/workflow/merge.sh" inspect \
@@ -375,6 +382,19 @@ else
     fail "cleanup inspect changed local state"
 fi
 
+mkdir -p "$cleanup_worktree/subdirectory"
+run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 8 --verified-sha "$cleanup_head" \
+    --workspace-id wks_cleanup --worktree "$cleanup_worktree/subdirectory" --main-worktree "$cleanup_seed"
+assert_exit 1 "cleanup subdirectory target"
+assert_contains "cleanup: blocked=worktree_path_not_root" "cleanup subdirectory target"
+if [ -d "$cleanup_worktree" ]; then
+    ok
+else
+    fail "cleanup removed a worktree targeted through a subdirectory"
+fi
+rmdir "$cleanup_worktree/subdirectory"
+
 wrong_worktree="$cleanup_fixture/wrong-worktree"
 git -C "$cleanup_seed" worktree add -q "$wrong_worktree" -b chore/wrong-worktree HEAD
 run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
@@ -397,6 +417,25 @@ run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
 assert_exit 1 "cleanup paseo query failure"
 assert_contains "cleanup: blocked=workspace_query_failed" "cleanup paseo query failure"
 unset STUB_PASEO_FAIL
+
+run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 8 --verified-sha "$cleanup_head" \
+    --workspace-id wks_other --worktree "$cleanup_worktree" --main-worktree "$cleanup_seed"
+assert_exit 1 "cleanup workspace id mismatch"
+assert_contains "cleanup: blocked=workspace_id_mismatch" "cleanup workspace id mismatch"
+
+wrong_cwd="$cleanup_fixture/other-worktree"
+export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_cleanup","cwd":"%s"}]' "$wrong_cwd")"
+run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 8 --verified-sha "$cleanup_head" \
+    --workspace-id wks_cleanup --worktree "$cleanup_worktree" --main-worktree "$cleanup_seed"
+assert_exit 1 "cleanup workspace cwd mismatch"
+assert_contains "cleanup: blocked=workspace_cwd_mismatch" "cleanup workspace cwd mismatch"
+export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_cleanup","cwd":"%s"}]' "$cleanup_worktree")"
+
+run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 8 --workspace-id 'wks_bad.*'
+assert_exit 2 "cleanup invalid workspace id"
 
 export STUB_PR_RECORD="$(printf '15\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fmain\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/15' "$cleanup_merge" "$cleanup_head")"
 run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
@@ -529,15 +568,30 @@ else
     fail "cleanup deleted a remote branch before verifying the merge"
 fi
 
-# Reproducible ignored build output must not block a normal cleanup, while other
-# ignored content still would.
-printf 'bin/\n' >> "$dirty_seed/.git/info/exclude"
-mkdir -p "$dirty_worktree/bin"
-printf 'binary\n' > "$dirty_worktree/bin/output.dll"
+# Meaningful ignored content under a broad output name is retained even when
+# build-output removal is requested. Standard bin/obj output can be removed only
+# with an explicit --remove-build-output request.
+printf 'bin/\nartifacts/\n' >> "$dirty_seed/.git/info/exclude"
+mkdir -p "$dirty_worktree/artifacts"
+printf 'important\n' > "$dirty_worktree/artifacts/important.txt"
 export STUB_PR_RECORD="$(printf '14\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/dirty-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/14' "$dirty_merge" "$dirty_head")"
 rm -f "$paseo_archived"
+run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 14 --verified-sha "$dirty_head" --remove-build-output \
+    --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
+assert_exit 1 "cleanup meaningful ignored content"
+assert_contains "cleanup: blocked=worktree_has_local_content" "cleanup meaningful ignored content"
+if [ -f "$dirty_worktree/artifacts/important.txt" ]; then
+    ok
+else
+    fail "cleanup deleted meaningful ignored content"
+fi
+rm -rf "$dirty_worktree/artifacts"
+
+mkdir -p "$dirty_worktree/bin"
+printf 'binary\n' > "$dirty_worktree/bin/output.dll"
 run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" execute \
-    --pr 14 --verified-sha "$dirty_head" \
+    --pr 14 --verified-sha "$dirty_head" --remove-build-output \
     --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
 assert_exit 0 "cleanup ignored build output"
 assert_contains "cleanup: worktree=removed" "cleanup ignored build output"

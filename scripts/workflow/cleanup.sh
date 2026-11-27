@@ -8,9 +8,9 @@
 #   cleanup.sh execute --pr N [options]
 #       Perform every cleanup step that is safe. Dirty worktrees, unmerged
 #       branches, fork branches, and diverged main are retained and reported.
-#       Known reproducible build output (bin, obj, TestResults, artifacts,
-#       publish, .binlog) is removed before worktree removal; other ignored
-#       content is retained. Repeating a completed step is safe.
+#       Any ignored content retains the worktree unless --remove-build-output
+#       explicitly requests removal of known reproducible output. Repeating a
+#       completed step is safe.
 #
 # Options:
 #   --verified-sha <sha>       Require this reviewed head to equal the PR head.
@@ -18,6 +18,10 @@
 #   --workspace-id <id>        Paseo workspace to archive.
 #   --worktree <path>          Issue worktree to remove; must have the PR branch.
 #   --main-worktree <path>     Worktree that has main checked out.
+#   --remove-build-output      Explicitly remove known reproducible output
+#                              (bin, obj, TestResults, .binlog) before worktree
+#                              removal. Without this flag, any ignored content
+#                              retains the worktree.
 #   --repository <owner/name>  Require this GitHub repository.
 #
 # Run from a worktree that will remain after the issue worktree is removed.
@@ -29,7 +33,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 source "$script_dir/common.sh"
 
 usage() {
-    sed -n '2,24p' "${BASH_SOURCE[0]}"
+    sed -n '2,28p' "${BASH_SOURCE[0]}"
 }
 
 pr=""
@@ -39,6 +43,7 @@ workspace_id=""
 worktree=""
 main_worktree=""
 repository=""
+remove_build_output=no
 blocked=0
 
 block() {
@@ -55,6 +60,7 @@ parse_args() {
             --workspace-id) workflow_option_value "$@"; workspace_id=$2; shift 2 ;;
             --worktree) workflow_option_value "$@"; worktree=$2; shift 2 ;;
             --main-worktree) workflow_option_value "$@"; main_worktree=$2; shift 2 ;;
+            --remove-build-output) remove_build_output=yes; shift ;;
             --repository) workflow_option_value "$@"; repository=$2; shift 2 ;;
             -h|--help) usage; exit 0 ;;
             *) workflow_usage_error "unknown argument: $1" ;;
@@ -66,6 +72,7 @@ parse_args() {
     fi
     if [ -n "$workspace_id" ]; then
         case "$workspace_id" in
+            wks_*[!A-Za-z0-9_]*|wks_) workflow_usage_error "--workspace-id must be wks_ followed by letters, digits, or underscore" ;;
             wks_*) ;;
             *) workflow_usage_error "--workspace-id must start with wks_" ;;
         esac
@@ -224,6 +231,10 @@ main_step() {
         printf 'cleanup: local_main=absent path_missing=yes\n'
         return 0
     fi
+    if [ -n "$("$GIT_BIN" -C "$path" rev-parse --show-prefix 2>/dev/null)" ]; then
+        block "local_main_worktree_not_root"
+        return 0
+    fi
     if [ "$("$GIT_BIN" -C "$path" branch --show-current)" != "main" ]; then
         block "local_main_worktree_not_main"
         return 0
@@ -327,9 +338,12 @@ workspace_step() {
         printf 'cleanup: workspace=absent\n'
         return 0
     fi
+    if [ -d "$path" ] && [ -n "$("$GIT_BIN" -C "$path" rev-parse --show-prefix 2>/dev/null)" ]; then
+        block "worktree_path_not_root"
+        return 0
+    fi
     path="$(normalize_path "$path")"
     printf 'cleanup: worktree=present path=%s\n' "$path"
-
     local cwd
     cwd="$(workflow_normalize_path "$PWD")"
     if workflow_path_is_within "$path" "$cwd"; then
@@ -349,7 +363,7 @@ workspace_step() {
         return 0
     fi
 
-    if ! workflow_worktree_status "$path"; then
+    if ! workflow_worktree_status "$path" "$remove_build_output"; then
         block "worktree_has_local_content"
         return 0
     fi
@@ -370,11 +384,35 @@ workspace_step() {
                 block "workspace_query_failed"
                 return 0
             fi
+            if command -v "$PASEO_BIN" >/dev/null 2>&1; then
+                local detected
+                if ! detected="$(workflow_paseo_workspace_id_for_cwd "$path")"; then
+                    block "workspace_query_failed"
+                    return 0
+                fi
+                if [ -n "$detected" ] && [ "$detected" != "$workspace_id" ]; then
+                    block "workspace_id_mismatch"
+                    return 0
+                fi
+            fi
             printf 'cleanup: workspace=absent id=%s\n' "$workspace_id"
             workspace_id=""
         fi
     fi
     if [ -n "$workspace_id" ]; then
+        local workspace_cwd
+        if ! workspace_cwd="$(workflow_paseo_workspace_cwd "$workspace_id")"; then
+            block "workspace_query_failed"
+            return 0
+        fi
+        if [ -z "$workspace_cwd" ]; then
+            block "workspace_cwd_missing"
+            return 0
+        fi
+        if [ "$(workflow_normalize_path "$workspace_cwd")" != "$path" ]; then
+            block "workspace_cwd_mismatch"
+            return 0
+        fi
         printf 'cleanup: workspace=present id=%s\n' "$workspace_id"
     else
         printf 'cleanup: workspace=absent\n'
@@ -396,7 +434,9 @@ workspace_step() {
         printf 'cleanup: warning=worktree_prune_failed\n'
     fi
     if worktree_registered "$root" "$path"; then
-        workflow_remove_reproducible_output "$path"
+        if [ "$remove_build_output" = yes ]; then
+            workflow_remove_reproducible_output "$path"
+        fi
         if ! "$GIT_BIN" -C "$root" worktree remove "$path" >/dev/null 2>&1; then
             block "worktree_remove_failed"
             return 0

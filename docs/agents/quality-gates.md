@@ -17,7 +17,7 @@ The CI workflow is [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
 | CodeQL | C# security analysis; advisory, not required |
 | Dependency review | New dependency vulnerabilities and licenses; advisory, not required |
 
-The exact commands are in [Development](../development.md#quality-gates). Do not duplicate them in new documents.
+The exact quality-gate commands are in [Development](../development.md#quality-gates); the repository-policy and public-content commands are in [Development tests](../development.md#tests). Do not duplicate them in new documents.
 
 ## Enforcement coverage
 

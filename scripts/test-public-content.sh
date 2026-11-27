@@ -36,6 +36,18 @@ fi
 if [ "$(safe_label "docs/notes.md")" != "docs/notes.md" ]; then
     fail "tracked relative label was changed unexpectedly"
 fi
+if [ "$(safe_label "file:///home/alice/notes.md")" != "notes.md" ]; then
+    fail "file URL label was not reduced to a basename"
+fi
+if [ "$(safe_label " ../alice/notes.md")" != "notes.md" ]; then
+    fail "leading-space relative label was not reduced to a basename"
+fi
+if [ "$(safe_label "~/notes.md")" != "notes.md" ]; then
+    fail "tilde label was not reduced to a basename"
+fi
+if [ "$(safe_label "../alice/notes.md")" != "notes.md" ]; then
+    fail "parent-relative label was not reduced to a basename"
+fi
 
 run_checker() {
     local text=$1
@@ -188,6 +200,7 @@ check_accept "public URL with users" "See https://example.com/Users/alice/projec
 check_accept "short token-like text" "token: ghp_short"
 check_accept "redacted token placeholder" "token: ghp_<redacted>"
 check_accept "benign hyphenated prose" "task-oriented-workflow-with-review-gates"
+check_accept "benign sk prefix" "Use sk-learn-machine-learning-for-this"
 
 printf 'See /home/alice/notes.md\n' > "$file_fixture"
 if "$checker" --files "$file_fixture" >"$output" 2>&1; then

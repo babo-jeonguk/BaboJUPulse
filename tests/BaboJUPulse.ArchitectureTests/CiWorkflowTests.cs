@@ -94,6 +94,14 @@ public sealed class CiWorkflowTests
             "bash scripts/test-public-content.sh",
             publicContentRun,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "printf '%s\\n\\n%s\\n' \"$PR_TITLE\" \"$PR_BODY\" | bash scripts/check-public-content.sh",
+            publicContentRun,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "git log --format=%B",
+            publicContentRun,
+            StringComparison.Ordinal);
         var publicContentEnvironment = RequireMapping(publicContentStep, "env");
         Assert.Equal(
             "${{ github.event.pull_request.title }}",

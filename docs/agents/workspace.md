@@ -21,34 +21,33 @@ Keep each issue's changes isolated, reproducible, and easy to review. The defaul
 
 ## Procedure
 
-### 1. Verify the repository and base
-
-```bash
-git remote -v
-gh repo view --json nameWithOwner
-git fetch origin
-git rev-parse origin/main
-```
-
-Do not create the branch from a stale local `main`. Use `origin/main` explicitly.
-
-### 2. Reuse a matching workspace when possible
-
-Before creating a new one, inspect the existing workspaces, worktrees, and branches:
-
-```bash
-paseo workspace ls
-git worktree list
-git branch --all
-```
-
-Reuse a workspace only when its repository, branch, base, and issue match. Do not attach a second issue to an in-progress branch merely because it is open.
-
-### 3. Create the worktree and branch
-
-The installed Paseo CLI version inspected for this procedure is `0.17.3`. Re-check `paseo --version` and the official [worktree documentation](https://paseo.sh/docs/worktrees) before relying on a command from a different version.
+### 1. Run the workspace preflight
 
 From the source checkout:
+
+```bash
+scripts/workflow/workspace.sh prepare \
+  --issue <number> \
+  --branch <type>/<short-name> \
+  --slug <short-name>
+```
+
+The script verifies the GitHub repository, reads the issue and its readiness label, refreshes `origin/main`, captures the base SHA, and detects an existing local branch, remote branch, or worktree. It is read-only and never creates a workspace. It prints:
+
+- `base_sha`, `branch`, `slug`, and `mode`
+- `action=create`, `action=reuse`, or `action=attach`
+- any existing worktree and Paseo workspace
+- whether the existing worktree is clean
+
+Use `--repository <owner/name>` when the working copy's remote is not the target repository. If the script reports `action=reuse`, stop: use the existing workspace instead of creating a duplicate. If it reports a dirty worktree, inspect and preserve the content before continuing.
+
+A shell script does not have direct access to an agent's Paseo MCP tools. The script performs the deterministic preflight and produces the parameters; the agent performs the workspace operation.
+
+### 2. Create or reuse the Paseo workspace
+
+Prefer the Paseo MCP workspace operation exposed by the installed Paseo daemon. Pass the repository, issue, `origin/main` base, branch, slug, and worktree isolation from the preflight output. Do not invent MCP tool names or arguments; inspect the available tools for the installed version.
+
+When the session exposes only the Paseo CLI, the verified command is:
 
 ```bash
 paseo workspace create \
@@ -56,12 +55,14 @@ paseo workspace create \
   --mode branch-off \
   --new-branch <type>/<short-name> \
   --worktree-slug <short-name> \
-  --base origin/main
+  --base origin/main \
+  --title "Issue #<number>: <title>" \
+  --path <source-checkout>
 ```
 
-Use `--path <source-checkout>` when the command is not run from the checkout. Prefer `origin/main`, not local `main`; Paseo fetches remote refs in the background and the remote-tracking ref names the intended base.
+Use `--mode checkout-branch --branch <name>` when the preflight reported `action=attach`. When it reported `requires_tracking_branch=yes`, create the local tracking branch before attaching the workspace.
 
-A plain Git worktree is equivalent when Paseo is unavailable or the contributor prefers another tool:
+The installed Paseo version inspected for this procedure is `0.17.3`. Re-check `paseo --version` and the official [worktree documentation](https://paseo.sh/docs/worktrees) before relying on a command from another version. A plain Git worktree is an acceptable fallback when Paseo is unavailable:
 
 ```bash
 git worktree add ../BaboJUPulse-<short-name> -b <type>/<short-name> origin/main
@@ -69,20 +70,24 @@ git worktree add ../BaboJUPulse-<short-name> -b <type>/<short-name> origin/main
 
 Paseo is an internal convenience. External contributors are not required to use it.
 
-### 4. Verify the workspace
+### 3. Verify the workspace
+
+From the new worktree:
 
 ```bash
-git rev-parse --show-toplevel
-git branch --show-current
-git merge-base --is-ancestor origin/main HEAD
-git status --short
+scripts/workflow/workspace.sh verify \
+  --issue <number> \
+  --branch <type>/<short-name> \
+  --base <base-sha>
 ```
 
-Record the issue number, branch name, and base commit in the issue. These are shareable and self-contained. Keep the actual local worktree path, Paseo workspace identifier, session information, and other machine-specific details in private local working notes, not in published issue text. A bare `.scratch/` convention mention is allowed; a concrete artifact below it is not.
+The script verifies the worktree root, repository, branch, base ancestry, current `origin/main` ancestry, and a clean working tree. If it fails, fix the workspace state; do not begin implementation on a worktree that does not correspond to the issue.
+
+Record the issue number, branch name, and base commit in the issue. These are shareable and self-contained. Keep the actual local worktree path, Paseo workspace identifier, session information, and other machine-specific details in private local working notes, not in published issue text. A bare `.scratch/` convention mention is allowed; a concrete artifact below it is not. Do not create a separate workspace report.
 
 Run the environment setup appropriate to the platform from [Development](../development.md#first-setup) before editing.
 
-### 5. Keep the branch current
+### 4. Keep the branch current
 
 Update the branch by merging `origin/main` when required by branch protection or when the base has changed materially:
 
@@ -100,6 +105,7 @@ Do not rewrite reviewed history with a force push. If a merge changes behavior o
 - The issue number, branch name, and base commit recorded in the issue with only shareable identifiers.
 - Local worktree paths and workspace or session identifiers kept in private local notes.
 - A clean starting status, or an explicit note about pre-existing changes.
+- No separate workspace report.
 
 ## Exit criteria
 
@@ -118,6 +124,7 @@ Do not rewrite reviewed history with a force push. If a merge changes behavior o
 - Publishing a local worktree path, workspace identifier, or session detail in an issue.
 - Deleting a worktree that contains uncommitted changes or artifacts that still need to be preserved.
 - Requiring Paseo or internal agent orchestration for an external contribution.
+- Creating a workspace report or other artifact that only restates Git or Paseo state.
 
 ## References
 
@@ -125,5 +132,6 @@ Do not rewrite reviewed history with a force push. If a merge changes behavior o
 - [Issue tracker](issue-tracker.md) and [triage labels](triage-labels.md) for readiness.
 - [Implementation](implementation.md) for the next stage.
 - [PR merge](pr-merge.md) for cleanup rules.
-- [Development](../development.md) for setup, build, and test commands.
+- [Development](../development.md) for setup, build, test, and workflow-script commands.
+- [GitHub operations](github-operations.md#artifact-ownership) for the information-location model.
 - Paseo documentation: [Git worktrees](https://paseo.sh/docs/worktrees) and [parallel development](https://paseo.sh/docs/parallel-development).

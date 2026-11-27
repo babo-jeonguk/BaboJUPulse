@@ -34,14 +34,26 @@ All of the following are true:
 
 ### 1. Reconfirm the reviewed state
 
+Start with the explicit verified SHA from the review record. Do not fetch a new head and treat it as verified.
+
 ```bash
-gh pr view <number> --json number,title,state,headRefOid,baseRefName,mergeable,reviewDecision,statusCheckRollup,headRepositoryOwner,headRepository
-git rev-parse HEAD
-git diff --name-status <approved-sha>..<final-head-sha>
-git log --oneline <approved-sha>..<final-head-sha>
+scripts/workflow/validate.sh range --base <base-sha> --head <final-head-sha>
+scripts/workflow/merge.sh inspect \
+  --pr <number> \
+  --verified-sha <final-head-sha>
 ```
 
-Record the approved implementation SHA and the final head SHA separately. If the head differs from the approved SHA, inspect the complete delta, not only the latest commit. A difference that is not a documentation-only delta returns to [Code review](code-review.md) for the affected work.
+`validate.sh range` refreshes `origin`, verifies both commits and their ancestry, and prints the commit count and diffstat. `merge.sh inspect` is read-only: it checks the PR state, base, draft state, current head, mergeability, and the required checks against the supplied SHA. It never replaces the supplied SHA with a freshly fetched value.
+
+Record the approved implementation SHA and the final head SHA separately. If the head differs from the approved SHA, inspect the complete delta, not only the latest commit:
+
+```bash
+git diff --name-status <approved-sha>..<final-head-sha>
+git log --oneline <approved-sha>..<final-head-sha>
+git diff <approved-sha>..<final-head-sha>
+```
+
+A difference that is not a documentation-only delta returns to [Code review](code-review.md) for the affected work.
 
 A documentation-only delta must:
 
@@ -53,13 +65,16 @@ A documentation-only delta must:
 
 Record the approved SHA, final head SHA, changed documentation files, validation result, and the reason independent code re-review was not required. Do not fabricate a review approval for the documentation commit.
 
+If `merge.sh inspect` reports a head mismatch, stop. The current PR head is not the commit that was reviewed and verified. Return to review and verification; do not merge the new head by adopting it as the expected SHA.
+
 ### 2. Inspect checks and security signals
 
-- Confirm the required `build` check succeeded on the final head. A documentation-only commit does not make the pull request documentation-only for CI purposes; the full build still runs.
-- Confirm the `documentation` workflow result for the final head. It is a separate validation path, not a branch-protection required check by default. If it did not run, record a local result and the reason. Do not add path filters to make it disappear, and do not treat an earlier run on another commit as evidence for the final head.
+- `merge.sh inspect` confirms the required checks. The default set is `build` and `documentation`; add `--require-check <name>` only when another check is required. The branch-protection required check is `build`, and the merge procedure also requires the `documentation` workflow result.
+- A documentation-only commit does not make the pull request documentation-only for CI purposes; the full build still runs.
+- If the `documentation` workflow did not run, record a local `scripts/workflow/validate.sh docs` result and the reason. When the workflow cannot run, pass `--allow-missing-check documentation` explicitly and record why; a missing check that actually ran and failed is never allowed, and the mandatory `build` check cannot be waived. Do not add path filters to make it disappear, and do not treat an earlier run on another commit as evidence for the final head.
 - Inspect CodeQL and dependency-review results when relevant. They are advisory unless the maintainer says otherwise, but a new security finding needs a decision before merge.
-- Confirm no unresolved conversation or requested-change review remains.
-- Confirm the branch is mergeable. If it is behind the base, update it, rerun affected checks, re-review a change that is not documentation-only, and repeat this procedure.
+- Confirm no unresolved conversation or requested-change review remains. The script does not replace this human check.
+- Confirm the branch is mergeable and targets `main`. If it is behind the base, update it, rerun affected checks, re-review a change that is not documentation-only, and repeat this procedure.
 
 ### 3. Perform the documentation freshness review
 
@@ -74,23 +89,24 @@ git diff --stat <base-sha>...<final-head-sha>
 
 Relevant candidates include:
 
-- `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, and `CODING_STANDARDS.md`.
+- `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `CODING_STANDARDS.md`, and `GLOSSARY.md`.
 - `docs/product-scope.md`, `docs/architecture.md`, and `docs/development.md`.
-- `docs/agents/`, the documentation indexes, and relevant ADRs.
-- Domain documentation added in the future.
+- `docs/agents/`, including [Domain guidance](domain.md) and `docs/agents/templates/`, and the documentation indexes.
+- Relevant ADRs.
 
 Check for:
 
 - Outdated descriptions of implemented features.
 - Incorrect architectural boundaries or module responsibilities.
-- Obsolete commands, file paths, or development instructions.
+- Domain terms or relationships that no longer match [GLOSSARY.md](../../GLOSSARY.md).
+- Obsolete commands, file paths, or development instructions, including workflow-script usage.
 - Inconsistent workflow or repository policies.
 - Broken links and outdated routing instructions.
 - Documentation that describes behavior which no longer matches the implementation.
 
 Update affected documents before merging. Do not make unrelated documentation edits merely to record that a review happened. Historical ADRs are records, not living documents: do not silently rewrite one. If a decision was superseded, preserve its history and add or update the replacement record with a reference to the superseded decision.
 
-Record the outcome in the PR body or a merge comment in this format:
+Record the outcome in the PR body or a merge comment in this format. Do not create a separate documentation-review report file.
 
 ```text
 Documentation review
@@ -106,14 +122,21 @@ Keep the detailed procedure in this document. Other documents link here instead 
 
 Use the merge strategy and branch-protection settings owned by [GitHub operations](github-operations.md). Preserve them unless the maintainer explicitly authorizes a change.
 
-Before merging, confirm that the final head has not changed since verification. `--match-head-commit` makes the merge fail if the PR head no longer matches the verified SHA:
+The verified SHA must come from the review and verification record, not from a value fetched immediately before merging. `merge.sh execute` receives that SHA, compares it with the current PR head, stops on a mismatch, verifies the required checks, and passes the original SHA to `--match-head-commit`:
 
 ```bash
-FINAL_HEAD="$(gh pr view <number> --json headRefOid --jq .headRefOid)"
-gh pr merge <number> --merge --delete-branch --match-head-commit "$FINAL_HEAD"
+scripts/workflow/merge.sh inspect \
+  --pr <number> \
+  --verified-sha <verified-final-sha>
+
+scripts/workflow/merge.sh execute \
+  --pr <number> \
+  --verified-sha <verified-final-sha>
 ```
 
-Do not bypass branch protection, force-push, or merge an unreviewed implementation commit. Do not omit `--match-head-commit` when the repository's strategy permits it; if the option is unavailable or a merge queue requires different handling, stop and record why.
+Do not replace the expected SHA with a newly fetched value when the inspection reports a mismatch. A merge command that fetches the head immediately before merging can adopt a commit that the existing review never covered; that is the gap this procedure closes. If the head changed, return to [Code review](code-review.md) and the verification in this document before attempting another merge.
+
+The script uses a merge commit, does not use `--admin`, and does not request branch deletion by default. Let [cleanup](#6-run-post-merge-cleanup) delete the branch only after it verifies the merged history. Do not bypass branch protection, force-push, or merge an unreviewed implementation commit. If `--match-head-commit` is unavailable or a merge queue requires different handling, stop and record why.
 
 ### 5. Verify the merge result
 
@@ -133,129 +156,37 @@ Confirm:
 - The linked issue was closed by the merge. If GitHub did not close it, comment with the merge reference and close it manually.
 - The issue state reflects the actual outcome, including any deferred acceptance criterion.
 
-### 6. Verify remote branch cleanup
+### 6. Run post-merge cleanup
 
-Check whether the remote branch was actually deleted. `--delete-branch` requested deletion; it is not proof that the branch is gone, and it does not cover a fork's branch.
+Run cleanup from a worktree that will remain after the issue worktree is removed, normally the main checkout. Do not run it from inside the worktree that will be archived; archiving stops that workspace's agents and terminals.
 
-```bash
-git ls-remote --heads origin <branch>
-```
-
-If the branch still exists:
-
-- Delete it only when the PR came from this repository, not from an external contributor's fork.
-- Confirm the branch tip is included in the merged history before deleting:
-
-  ```bash
-  git fetch origin --prune
-  git merge-base --is-ancestor origin/<branch> origin/main
-  git push origin --delete <branch>
-  git fetch origin --prune
-  ```
-
-- Do not delete an unrelated branch, a branch containing work that was not merged, or a contributor's fork branch.
-- If deletion is unsafe or unavailable, retain the branch and record why.
-
-After deletion, refresh remote-tracking references and verify that the branch no longer appears.
-
-### 7. Synchronize local main
-
-Fetching updates remote-tracking references; it does not update a checked-out local branch. Locate the worktree that contains `main`:
+Inspect first:
 
 ```bash
-git worktree list --porcelain
-git branch --show-current
+scripts/workflow/cleanup.sh inspect \
+  --pr <number> \
+  --verified-sha <final-head-sha> \
+  --branch <branch> \
+  --workspace-id <workspace-id> \
+  --worktree <worktree-path> \
+  --main-worktree <main-worktree-path>
 ```
 
-In the worktree whose `branch` entry is `refs/heads/main`:
+Then execute the same inputs without `inspect` when the reported state is safe. Omit the optional identifiers when they can be discovered; the script accepts them to make the intended resources explicit. If the only ignored content is reproducible build output, add `--remove-build-output` explicitly; it removes the whole `bin`, `obj`, and `TestResults` directories, so do not use it when they contain notes, logs, or other meaningful local artifacts.
 
-```bash
-git -C "<main-worktree>" status --porcelain
-git -C "<main-worktree>" fetch origin
-git -C "<main-worktree>" merge --ff-only origin/main
-git -C "<main-worktree>" rev-parse HEAD
-git rev-parse origin/main
-```
+The script verifies and performs these steps:
 
-The two revision values must match. If local `main` has uncommitted changes or has diverged from `origin/main`, stop and report the situation. Do not reset, discard, stash without permission, or overwrite local work. Do not report that local `main` was updated merely because `git fetch origin` ran.
+1. The PR is merged, its merge commit is on `origin/main`, and the supplied verified head, when provided, is included in merged history. A successful PR state alone is not proof of content.
+2. The remote branch exists only for this repository, its fetched tip is contained in `origin/main`, and no concurrent update has replaced it. It deletes with a lease on the inspected tip. It never deletes a fork branch, an unrelated branch, or a branch with unmerged commits.
+3. Local `main` is clean and is an ancestor of `origin/main`, then fast-forwards with `--ff-only`. It never resets, stashes, or overwrites local work.
+4. The issue worktree is on the PR head branch, has no tracked or untracked content that would be lost, and is not a subdirectory of another worktree. Any ignored content retains the worktree unless `--remove-build-output` explicitly requests removal of known reproducible output (`bin`, `obj`, `TestResults`, and `.binlog` files). It refuses a mismatched branch or another worktree, and the script is not running inside the target. It archives the Paseo workspace through Paseo after verifying its working directory, verifies the archive, removes requested build output, removes the Git worktree when it is still registered, prunes stale registrations, and verifies the directory state.
+5. The merged local branch is not checked out elsewhere and is contained in `origin/main`. It deletes with `git branch -d`, never `-D`. The branch must equal the PR head branch; `main`, the PR base, and any unrelated branch are rejected before any destructive step.
 
-### 8. Clean up the Paseo workspace and Git worktree
+The installed Paseo version inspected for this procedure is `0.17.3`. In that version, archiving a Paseo-owned worktree workspace stops and archives its owned agents and terminals, removes the Paseo-owned worktree directory when no other active workspace references it, and does not delete the Git branch. Verify `paseo --version` and the archive behavior for a different installed version before relying on it.
 
-Identify the workspace and worktree associated with the completed issue:
+Cleanup is safe and idempotent. An already deleted branch or removed worktree is reported as absent, not as a misleading failure. Repeating an already completed step must not delete different work. If a step cannot proceed safely, the script reports the exact blocked step and retains the affected resource. Do not force-remove a dirty worktree, force-delete an unmerged branch, or use a destructive Git command to make cleanup succeed.
 
-```bash
-paseo workspace ls --json
-git worktree list --porcelain
-```
-
-Inspect the worktree before removing or archiving it:
-
-```bash
-git -C "<worktree>" status --porcelain --untracked-files=all
-git -C "<worktree>" status --ignored --short
-```
-
-Before cleanup, verify all of the following:
-
-- The intended changes were merged.
-- No uncommitted changes remain.
-- No meaningful untracked or ignored local artifact would be lost.
-- No unrelated active agent session depends on the workspace.
-
-Prefer the workspace manager used to create the workspace:
-
-```bash
-paseo workspace archive <workspace-id>
-```
-
-The installed Paseo version inspected for this procedure is `0.17.3`. In that version, archiving a Paseo-owned worktree workspace stops and archives its owned agents and terminals, removes the Paseo-owned worktree directory when no other active workspace references it, and does not delete the Git branch. Verify `paseo --version` and the archive behavior for a different installed version before relying on it. Do not assume that archiving alone removed the worktree or the branch.
-
-For a manually created worktree, or when archiving did not remove the directory:
-
-```bash
-git worktree remove <path>
-git worktree prune
-```
-
-After the operation, verify the actual result:
-
-```bash
-paseo workspace ls --json
-git worktree list --porcelain
-if [ -d "<worktree>" ]; then
-    echo "worktree still present; inspect it or remove it manually"
-fi
-```
-
-If the directory is still present after archiving, inspect it before deciding whether to remove it manually. A retained directory is not automatically a failure; uncommitted or local-only content is a reason to retain it.
-
-If cleanup cannot be completed safely, retain the workspace and the worktree and report the reason. Do not delete a worktree with uncommitted changes or meaningful local artifacts.
-
-### 9. Delete the merged local branch
-
-After the worktree has been removed or detached, check the local branch:
-
-```bash
-git branch --list <branch>
-git branch --contains <branch>
-```
-
-Confirm that the branch's intended commits are included in the merged history:
-
-```bash
-git fetch origin --prune
-git merge-base --is-ancestor <branch> origin/main
-```
-
-Delete it with the safe form:
-
-```bash
-git branch -d <branch>
-```
-
-`git branch -d` refuses to delete a branch whose commits are not merged. Do not use `-D` or otherwise force-delete a branch that has not been merged. Do not assume that the GitHub CLI merge command deleted every local branch in a multi-worktree environment; the branch may still exist precisely because another worktree had it checked out.
-
-### 10. Record completion
+### 7. Record completion
 
 Update the issue with the merge commit and any follow-up issues for non-blocking findings or deferred work. Record the final state explicitly:
 
@@ -272,24 +203,25 @@ Completion
 - Retained artifacts: <none or item and reason>
 ```
 
-Cleanup must be safe and idempotent. Repeating an already completed step must not delete different work or report a misleading failure. Do not leave an issue open merely because a follow-up exists; link the follow-up explicitly.
+The completion record belongs in the issue or PR; do not create a separate development report. Do not leave an issue open merely because a follow-up exists; link the follow-up explicitly.
 
 ## Required outputs
 
 - Merged PR with the expected merge commit.
-- A recorded documentation freshness review.
+- A recorded documentation freshness review, including glossary updates when a domain concept changed.
 - Verified `origin/main` state and linked issue state.
 - Verified remote branch deletion or a recorded reason for retention.
 - Local `main` synchronized with `origin/main`, or a recorded blocked reason.
 - Removed or archived workspace and worktree when safe, or a recorded reason for retention.
 - Deleted merged local branch when safe, or a recorded reason for retention.
 - Follow-up issues for deferred non-blocking work.
+- A completion record in the issue or PR, not a separate development report.
 
 ## Exit criteria
 
 - The merge result is verified on the default branch.
 - The reviewed implementation and any documentation-only delta are recorded accurately.
-- The documentation freshness review is recorded, and affected documentation is updated.
+- The documentation freshness review is recorded, and affected documentation and glossary entries are updated.
 - Documentation validation and the required CI result apply to the final head.
 - The issue state matches the actual outcome.
 - Remote and local branches are cleaned up when safe, or explicitly retained with a reason.
@@ -297,32 +229,39 @@ Cleanup must be safe and idempotent. Repeating an already completed step must no
 - The workspace and worktree are cleaned up when safe, or explicitly retained with a reason.
 - No unreviewed change or dirty worktree remains.
 - The final completion report records the state required by this document.
+- No temporary report is required to understand the result.
 
 ## Prohibited actions
 
 - Merging before required checks pass on the final head.
-- Merging a head that differs from the verified head, or omitting `--match-head-commit` without a recorded reason.
+- Merging a head that differs from the verified head, or replacing the verified SHA with a value fetched immediately before the merge.
+- Omitting `--match-head-commit` without a recorded reason.
 - Treating a documentation-only commit as a documentation-only pull request for CI purposes.
 - Recording a documentation-only delta without inspecting the complete approved-to-final diff.
 - Reclassifying a substantive policy, contract, security, or quality-gate change as harmless because its file extension is `.md`.
-- Skipping required code review after production code, executable configuration, dependencies, tests, or quality-gate policy changed.
+- Skipping required code review after production code, executable configuration, dependencies, tests, scripts, or quality-gate policy changed.
 - A merge strategy that differs from [GitHub operations](github-operations.md), force pushes, or branch-protection bypasses.
 - Deleting a worktree with uncommitted changes or meaningful local artifacts.
+- Force-removing a dirty worktree or force-deleting an unmerged local branch.
 - Deleting an unmerged local branch, an unrelated branch, or an external contributor's branch.
 - Reporting `git fetch origin` as synchronization of local `main`.
 - Using `git reset --hard`, `git clean`, or another destructive command to make cleanup succeed.
 - Closing an issue without recording how the work was resolved.
 - Claiming the merge, post-merge CI, or cleanup passed without verifying it.
 - Changing merge strategy, branch protection, repository visibility, licensing, or approval requirements without explicit maintainer authorization.
+- Creating a separate development or cleanup report instead of recording the result in the issue or PR.
 
 ## References
 
 - [Development workflow](development-workflow.md) for the overall sequence.
 - [Pull request](pull-request.md) for PR preparation and final-head evidence.
 - [Code review](code-review.md) and [review remediation](review-remediation.md) for review evidence and the documentation-only exception.
-- [GitHub operations](github-operations.md) for merge strategy, branch protection, and repository settings.
+- [GLOSSARY.md](../../GLOSSARY.md) and [domain guidance](domain.md) for terminology updates.
+- [GitHub operations](github-operations.md) for merge strategy, branch protection, repository settings, and artifact ownership.
 - [Issue tracker](issue-tracker.md) for issue closure.
 - [Workspace](workspace.md) for worktree creation and ownership.
-- GitHub CLI: [`gh pr merge`](https://cli.github.com/manual/gh_pr_merge).
+- [Development](../development.md#workflow-scripts) for workflow-script usage and tests.
+- GitHub CLI: [`gh pr merge`](https://cli.github.com/manual/gh_pr_merge) and [`gh pr checks`](https://cli.github.com/manual/gh_pr_checks).
 - GitHub: [troubleshooting required status checks](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks).
-- Git: [worktree](https://git-scm.com/docs/git-worktree), [pull](https://git-scm.com/docs/git-pull), and [branch](https://git-scm.com/docs/git-branch).
+- Git: [worktree](https://git-scm.com/docs/git-worktree), [merge](https://git-scm.com/docs/git-merge), [merge-base](https://git-scm.com/docs/git-merge-base), and [branch](https://git-scm.com/docs/git-branch).
+- Paseo: workspace management commands verified against the installed version.

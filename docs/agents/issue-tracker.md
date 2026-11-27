@@ -10,6 +10,7 @@ Make each issue the authoritative statement of the problem, scope, acceptance cr
 
 - A problem, defect, idea, or research question.
 - Any public references needed to understand it.
+- The relevant canonical terms from [GLOSSARY.md](../../GLOSSARY.md) and [domain guidance](domain.md) when the work affects product behavior.
 - The linked repository, confirmed with `gh repo view --json nameWithOwner`.
 - For an implementation specification, enough evidence to state behavior and acceptance criteria.
 
@@ -48,11 +49,13 @@ Do reference-first research when the task depends on an external API, an unfamil
 Start from the form or a self-contained body. For an implementation specification:
 
 - State the observable behavior, not only the desired code shape.
+- Use the canonical domain term and state any material ambiguity that must be resolved before implementation.
 - Give every acceptance criterion a verification method.
 - Name explicit out-of-scope items.
 - Record dependencies and blockers.
 - Keep implementation slices small enough to verify independently.
 - Link public references. Do not require a separate implementation-plan document when the issue can contain the specification.
+- Keep the issue self-contained. Do not depend on a local handoff artifact for the specification.
 
 ### 4. Check publication content before posting
 
@@ -92,6 +95,7 @@ Readiness requires all of the following:
 - One work type, at least one functional area, and one priority label are applied.
 - The problem or objective is unambiguous.
 - Acceptance criteria are observable and testable.
+- Relevant domain terms are canonical, and a material ambiguity is resolved or explicitly blocking.
 - Scope and out-of-scope items are explicit.
 - Constraints, failure behavior, and important edge cases are stated.
 - Dependencies are known and satisfied or explicitly blocking.
@@ -145,11 +149,14 @@ Closing an issue removes any readiness label because it no longer describes the 
 - Using a label that does not exist in the repository.
 - Publishing credentials, account data, raw provider responses, local absolute paths, or local-only artifact references.
 - Deleting or renaming a label with historical usage without checking its usage and preserving the classification.
+- Inventing a domain term or provider relationship to complete a specification.
+- Requiring a separate local report to understand an issue.
 
 ## References
 
 - [Triage labels](triage-labels.md) for label meanings, category cardinality, and label synchronization.
-- [GitHub operations](github-operations.md) for publication, commits, PRs, and local-only artifacts.
+- [Domain guidance](domain.md) and [GLOSSARY.md](../../GLOSSARY.md) for canonical terminology.
+- [GitHub operations](github-operations.md) for publication, commits, PRs, local-only artifacts, and artifact ownership.
 - [Development workflow](development-workflow.md) for stage transitions.
 - [Coding standards](../../CODING_STANDARDS.md) and [quality gates](quality-gates.md) for implementation requirements.
 - GitHub documentation: [issue and pull request templates](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests), [issue forms syntax](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms), and [linking a pull request to an issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue).

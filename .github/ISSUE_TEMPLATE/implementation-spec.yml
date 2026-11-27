@@ -31,6 +31,13 @@ body:
     validations:
       required: true
   - type: textarea
+    id: domain-terms
+    attributes:
+      label: Domain terms and ambiguities
+      description: Name the canonical terms from GLOSSARY.md that this change uses. Record any material ambiguity or provider relationship that is not established.
+    validations:
+      required: false
+  - type: textarea
     id: constraints
     attributes:
       label: Constraints

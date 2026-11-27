@@ -12,6 +12,7 @@ Publish a reviewable change with the issue link, a Summary that shows the shape 
 - Review approval naming the approved implementation SHA, with blocking findings resolved.
 - The final PR head SHA and, when it differs, the complete documented delta.
 - The final validation results for the final head.
+- Canonical domain terms from [GLOSSARY.md](../../GLOSSARY.md) for the Summary and acceptance-criteria coverage.
 - The PR template at [`.github/PULL_REQUEST_TEMPLATE.md`](../../.github/PULL_REQUEST_TEMPLATE.md).
 
 ## Entry criteria
@@ -27,9 +28,8 @@ Publish a reviewable change with the issue link, a Summary that shows the shape 
 ### 1. Confirm the final state
 
 ```bash
-git fetch origin
+scripts/workflow/validate.sh range --base <approved-sha> --head <final-head-sha>
 git status --short
-git rev-parse HEAD
 git merge-base --is-ancestor origin/main HEAD
 ```
 
@@ -134,11 +134,10 @@ For a two-way door, keep the assessment proportionate to the actual risk. A triv
 ### 6. Run documentation validation when documentation changed
 
 ```bash
-bash scripts/check-documentation.sh
-bash scripts/test-check-documentation.sh
+scripts/workflow/validate.sh docs
 ```
 
-The checker validates relative links, heading fragments, Git-ignored targets, local absolute paths, table shape, fenced-code closure, and public-content policy without building the application. The detailed policy is in [Quality gates](quality-gates.md#documentation-validation); commands and troubleshooting are in [Development](../development.md#documentation-validation).
+This runs `scripts/test-check-documentation.sh`, `scripts/check-documentation.sh`, `scripts/test-public-content.sh`, and `scripts/check-public-content.sh --tracked`. The checker validates relative links, heading fragments, Git-ignored targets, local absolute paths, table shape, fenced-code closure, and public-content policy without building the application. The detailed policy is in [Quality gates](quality-gates.md#documentation-validation); commands and troubleshooting are in [Development](../development.md#documentation-validation).
 
 ### 7. Check publication content
 
@@ -164,7 +163,17 @@ Use the Conventional Commit style for the title when practical. Do not add label
 
 The required check is `build` on `windows-latest`. It runs restore/audit, formatting, build, tests, repository-policy tests, and public-content checks. CodeQL and dependency review are advisory unless the maintainer says otherwise.
 
-The separate `documentation` workflow runs the documentation checker and its synthetic tests. It is not currently a branch-protection required check; the merge procedure still requires its result on the final head. Do not add path filters that could leave a required check pending.
+The separate `documentation` workflow runs the documentation checker, its synthetic tests, the public-content tests, and the workflow-script tests. It is not currently a branch-protection required check; the merge procedure still requires its result on the final head. Do not add path filters that could leave a required check pending.
+
+Use the read-only merge inspection to confirm the mechanical PR state before requesting merge:
+
+```bash
+scripts/workflow/merge.sh inspect \
+  --pr <number> \
+  --verified-sha <final-head-sha>
+```
+
+It verifies the PR state, base, draft state, head SHA, mergeability, and named checks. It does not approve the change; review and documentation freshness remain separate.
 
 - Verify each check runs against the final head SHA. A result on an earlier commit does not cover a later documentation-only commit.
 - If a check fails, fix the cause, commit, and rerun the affected verification.
@@ -188,6 +197,7 @@ Update the body when the head changes, a check result changes, a review finding 
 - A proportionate Merge Danger assessment.
 - A documentation freshness review record.
 - A current required CI result for the final head.
+- No dependency on a local review report or other temporary artifact.
 
 ## Exit criteria
 
@@ -210,12 +220,15 @@ Update the body when the head changes, a check result changes, a review finding 
 - Force-pushing over reviewed history and presenting the result as reviewed.
 - Requiring an external contributor to use Paseo or internal agent orchestration.
 - Changing merge strategy, branch protection, or required checks as part of the PR.
+- Making the PR's review record depend on a local report that disappears with the worktree.
 
 ## References
 
 - [Development workflow](development-workflow.md) for the overall sequence.
-- [Code review](code-review.md) and [review remediation](review-remediation.md) for the preceding review and the documentation-only exception.
+- [Code review](code-review.md), the [review report template](templates/review-report.md), and [review remediation](review-remediation.md) for the preceding review and the documentation-only exception.
 - [PR merge](pr-merge.md) for the following stage, documentation freshness, and cleanup.
-- [GitHub operations](github-operations.md) for publication, commits, and local-only artifacts.
+- [GitHub operations](github-operations.md) for publication, commits, local-only artifacts, and artifact ownership.
 - [Quality gates](quality-gates.md#documentation-validation) and [Development](../development.md#documentation-validation) for validation.
+- [Development](../development.md#workflow-scripts) for workflow-script usage.
+- [GLOSSARY.md](../../GLOSSARY.md) and [domain guidance](domain.md) for canonical terminology.
 - Upstream PR guidance: [mattpocock/skills PR skill](https://github.com/mattpocock/skills/blob/main/skills/engineering/pr/SKILL.md).

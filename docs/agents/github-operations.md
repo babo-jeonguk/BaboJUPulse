@@ -39,10 +39,48 @@ Authoritative for repository operations and external publication. It does not de
 - The required status check is `build` on `windows-latest`. It runs restore/audit, formatting, build, tests, repository-policy checks, and public-content checks. The `pull_request` trigger includes `edited`, so a title or body edit is revalidated by CI.
 - The separate `documentation` workflow runs lightweight documentation validation on every pull request and push to `main`. It is not a branch-protection required check; the merge procedure requires its result on the final head. Do not add path filters that could leave a required check pending.
 - CodeQL and dependency review are advisory checks, not required by branch protection.
-- Merge with a merge commit. Squash and rebase merges are disabled; head branches are deleted after merge. Auto-merge is enabled. Use `gh pr merge --match-head-commit <final-head-sha>` so the verified head cannot change silently before the merge.
+- Merge with a merge commit. Squash and rebase merges are disabled; head branches are deleted after merge. Auto-merge is enabled. Use `scripts/workflow/merge.sh` with the explicit verified final SHA. The script passes that original SHA to `--match-head-commit`; never substitute a value fetched immediately before merging.
 - Required approvals are `0` because the repository has one maintainer. Administrators are subject to branch protection.
 - Do not change merge strategy, repository visibility, licensing, approval requirements, required checks, or branch protection without explicit maintainer authorization.
-- Local `main`, remote branches, and worktrees are synchronized and cleaned up after merge by [PR merge](pr-merge.md). The GitHub settings describe server-side branch deletion, not the complete local cleanup.
+- Local `main`, remote branches, and worktrees are synchronized and cleaned up after merge by [PR merge](pr-merge.md) and `scripts/workflow/cleanup.sh`. The GitHub settings describe server-side branch deletion, not the complete local cleanup.
+- Do not make a PR's review record depend on a local report or an inaccessible artifact.
+
+## Artifact ownership
+
+Git, GitHub, Paseo, and the project's authoritative documents are the durable engineering record. A workflow stage should update the owner of its information instead of producing a parallel report.
+
+| Information | Authoritative location |
+| --- | --- |
+| Problem, scope, requirements, acceptance criteria, and implementation slices | GitHub issue |
+| Research findings and task-specific technical conclusions | GitHub issue or an appropriate ADR |
+| Established domain terminology | [GLOSSARY.md](../../GLOSSARY.md) |
+| Consequential architectural decisions | [ADRs](../adr/) |
+| Actual implementation | Git commits |
+| Regression protection | Test code |
+| Final review decision and relevant review evidence | GitHub pull request |
+| CI results | GitHub Actions |
+| Deferred actionable work | Follow-up GitHub issue |
+| Workspace and branch state | Actual Git and Paseo state |
+| Temporary agent-to-agent handoff | Agent session output, or a minimal local artifact when persistence is necessary |
+
+Do not create a document that only reproduces information already available from Git, GitHub, Paseo, or an existing authoritative document. In particular:
+
+- Do not create a workspace report for a branch and worktree that can be queried directly.
+- Do not create a separate implementation plan when the issue already carries a sufficient specification and slice breakdown.
+- Do not create a standalone implementation report when commits, acceptance-criteria evidence, and the handoff output are sufficient.
+- Do not add a tracked development report for every completed issue.
+
+The pull request remains the durable review record even when a reviewer used a local report. Its review section must be understandable without any temporary file.
+
+## Temporary handoffs
+
+Agent session output is the default mechanism for short-lived implementation and review handoffs. Use `.scratch/` only when a real coordination need requires persistence across sessions.
+
+A temporary artifact must be minimal, task-specific, clearly disposable once its information has been transferred, and free from duplicated authoritative content. There is no required set of generated files for an issue.
+
+Before workspace cleanup, move any information needed to understand, verify, maintain, or continue the work into its durable location: the issue, PR, glossary, ADR, commit, test, or tracked documentation. Do not require a local artifact after the worktree is removed.
+
+Raw local artifacts, private working notes, machine-specific paths, workspace identifiers, and sensitive information must not be published.
 
 ## Public communication
 

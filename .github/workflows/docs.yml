@@ -30,3 +30,4 @@ jobs:
           bash scripts/check-documentation.sh
           bash scripts/test-public-content.sh
           bash scripts/check-public-content.sh --tracked
+          bash scripts/test-workflow.sh

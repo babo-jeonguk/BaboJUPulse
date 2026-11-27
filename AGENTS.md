@@ -20,18 +20,20 @@ Read the linked document before the matching action. Do not load every document.
 | --- | --- |
 | Overall sequence, stage transitions, escalation | [Development workflow](docs/agents/development-workflow.md) |
 | Product intent, scope, provider limits | [Product scope](docs/product-scope.md) |
+| Canonical product terminology and domain conflicts | [GLOSSARY](GLOSSARY.md), [Domain guidance](docs/agents/domain.md) |
 | Architecture boundaries and decisions | [Architecture](docs/architecture.md), [ADRs](docs/adr/) |
 | Code rules and prohibited patterns | [Coding standards](CODING_STANDARDS.md) |
 | Setup, build, run, tests, troubleshooting | [Development](docs/development.md) |
 | Verification, suppressions, analyzer/CI changes | [Quality gates](docs/agents/quality-gates.md) |
 | Issue creation, triage, readiness, closure | [Issue tracker](docs/agents/issue-tracker.md), [triage labels](docs/agents/triage-labels.md) |
-| Worktree, branch, and base preparation | [Workspace](docs/agents/workspace.md) |
+| Worktree, branch, and base preparation | [Workspace](docs/agents/workspace.md), `scripts/workflow/workspace.sh` |
 | Slice-based implementation and tests | [Implementation](docs/agents/implementation.md) |
-| Independent review and finding records | [Code review](docs/agents/code-review.md) |
+| Independent review and finding records | [Code review](docs/agents/code-review.md), [review report template](docs/agents/templates/review-report.md) |
 | Remediation and re-review | [Review remediation](docs/agents/review-remediation.md) |
 | PR preparation, Summary, evidence, and CI | [Pull request](docs/agents/pull-request.md) |
 | Merge, documentation freshness, post-merge verification, cleanup | [PR merge](docs/agents/pr-merge.md) |
 | Documentation validation | [Quality gates](docs/agents/quality-gates.md#documentation-validation), [Development](docs/development.md#documentation-validation) |
+| Workspace, validation, merge, and cleanup scripts | [Development](docs/development.md#workflow-scripts) |
 | Issues, PRs, comments, commits, publication | [GitHub operations](docs/agents/github-operations.md) |
 | External contributor entry point | [Contributing](CONTRIBUTING.md) |
 | Documentation map | [Docs](docs/README.md), [agent docs](docs/agents/README.md) |

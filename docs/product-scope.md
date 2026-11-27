@@ -1,6 +1,6 @@
 # Product scope
 
-> **Status:** product intent. This document describes what BaboJUPulse is meant to become. It is not a statement that any capability is implemented.
+> **Status:** product intent. This document describes what BaboJUPulse is meant to become. It is not a statement that any capability is implemented. Canonical terminology is in [GLOSSARY.md](../GLOSSARY.md).
 
 ## Problem
 

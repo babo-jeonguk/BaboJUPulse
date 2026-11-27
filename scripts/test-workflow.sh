@@ -1172,6 +1172,18 @@ set_paseo_workspace wks_status "$status_worktree"
 set_paseo_agents "[]"
 rm -f "$paseo_archived"
 
+export STUB_GIT_FAIL_WORKTREE=1
+run_at "$status_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 32 --verified-sha "$status_head" \
+    --workspace-id wks_status --worktree "$status_worktree"
+unset STUB_GIT_FAIL_WORKTREE
+assert_exit 1 "cleanup main worktree query failure"
+assert_contains "cleanup: blocked=local_main_query_failed" "cleanup main worktree query failure"
+assert_path_exists "$status_worktree" "cleanup main worktree query failure"
+assert_branch_present "$status_seed" chore/status-ws "cleanup main worktree query failure"
+assert_remote_branch_present "$status_seed" chore/status-ws "cleanup main worktree query failure"
+assert_no_archive "cleanup main worktree query failure"
+
 export STUB_GIT_FAIL_STATUS="tracked"
 export STUB_GIT_FAIL_STATUS_PATH="$status_worktree"
 run_at "$status_seed" "$root/scripts/workflow/cleanup.sh" execute \
@@ -1236,6 +1248,36 @@ run_at "$identity_seed" "$root/scripts/workflow/cleanup.sh" inspect \
 assert_exit 1 "cleanup push destination mismatch"
 assert_contains "repository identity mismatch" "cleanup push destination mismatch"
 assert_no_archive "cleanup push destination mismatch"
+
+destination_fixture="$fixture/destinations"
+fixture_output=$(make_merged_issue "$destination_fixture" chore/destination-ws "destination work")
+IFS=$'\x1f' read -r destination_seed destination_head destination_merge destination_worktree <<< "$fixture_output"
+set_merged_pr 33 "$destination_head" "$destination_merge" chore/destination-ws
+set_paseo_workspace wks_destination "$destination_worktree"
+set_paseo_agents "[]"
+
+git -C "$destination_seed" config remote.origin.pushurl "https://github.com/other/repo.git"
+run_at "$destination_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 33 --verified-sha "$destination_head" \
+    --workspace-id wks_destination --worktree "$destination_worktree" --main-worktree "$destination_seed"
+assert_exit 1 "cleanup fetch and push destinations disagree"
+assert_contains "do not identify the same repository" "cleanup fetch and push destinations disagree"
+assert_remote_branch_present "$destination_seed" chore/destination-ws "cleanup fetch and push destinations disagree"
+assert_path_exists "$destination_worktree" "cleanup fetch and push destinations disagree"
+assert_branch_present "$destination_seed" chore/destination-ws "cleanup fetch and push destinations disagree"
+assert_no_archive "cleanup fetch and push destinations disagree"
+
+git -C "$destination_seed" config --unset remote.origin.pushurl
+git -C "$destination_seed" remote set-url --add origin "https://github.com/other/repo.git"
+run_at "$destination_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 33 --verified-sha "$destination_head" \
+    --workspace-id wks_destination --worktree "$destination_worktree" --main-worktree "$destination_seed"
+assert_exit 1 "cleanup fetch destinations disagree"
+assert_contains "do not identify the same repository" "cleanup fetch destinations disagree"
+assert_remote_branch_present "$destination_seed" chore/destination-ws "cleanup fetch destinations disagree"
+assert_path_exists "$destination_worktree" "cleanup fetch destinations disagree"
+assert_branch_present "$destination_seed" chore/destination-ws "cleanup fetch destinations disagree"
+assert_no_archive "cleanup fetch destinations disagree"
 
 main_identity_fixture="$fixture/main-identity"
 fixture_output=$(make_merged_issue "$main_identity_fixture" chore/main-identity "main identity work")
@@ -1312,6 +1354,18 @@ assert_exit 1 "cleanup duplicate workspace identity"
 assert_contains "cleanup: blocked=workspace_query_failed" "cleanup duplicate workspace identity"
 assert_path_exists "$discovery_worktree" "cleanup duplicate workspace identity"
 assert_no_archive "cleanup duplicate workspace identity"
+
+duplicate_cwd_one=$(paseo_workspace_record wks_discovery_a "$discovery_worktree")
+duplicate_cwd_two=$(paseo_workspace_record wks_discovery_b "$discovery_worktree")
+duplicate_cwds=$(printf '[%s,%s]' "$duplicate_cwd_one" "$duplicate_cwd_two")
+set_paseo_json "$duplicate_cwds"
+run_at "$discovery_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 29 --verified-sha "$discovery_head" \
+    --worktree "$discovery_worktree" --main-worktree "$discovery_seed"
+assert_exit 1 "cleanup duplicate workspace cwd"
+assert_contains "cleanup: blocked=workspace_query_failed" "cleanup duplicate workspace cwd"
+assert_path_exists "$discovery_worktree" "cleanup duplicate workspace cwd"
+assert_no_archive "cleanup duplicate workspace cwd"
 
 variant_one=$(paseo_workspace_record wks_discovery_a "$discovery_worktree")
 variant_two=$(paseo_workspace_record wks_discovery_b "$discovery_worktree/")

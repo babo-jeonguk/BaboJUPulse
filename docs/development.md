@@ -67,7 +67,7 @@ Required checks, suppression approval, analyzer changes, gate integrity, and enf
 | `scripts/workflow/workspace.sh prepare` | Verify the repository and issue, refresh `origin/main`, capture the base SHA, and detect an existing branch or worktree before a Paseo workspace operation. |
 | `scripts/workflow/workspace.sh verify` | Verify the worktree, branch, base ancestry, current `origin/main` ancestry, and clean state after workspace creation. |
 | `scripts/workflow/validate.sh targeted` | Run selected gates after a slice, for example `--format --build --test`, `--docs`, `--policy`, or `--workflow`. The workflow check runs ShellCheck and the workflow-script tests. |
-| `scripts/workflow/validate.sh full` | Run restore, format, build, tests, repository-policy tests, documentation, public content, and workflow-script tests. |
+| `scripts/workflow/validate.sh full` | Run restore, format, build, tests, repository-policy tests, documentation, public content, workflow ShellCheck, and workflow-script tests. |
 | `scripts/workflow/validate.sh docs` | Run documentation and public-content checks only. |
 | `scripts/workflow/validate.sh range` | Verify and print a base-to-head review range, commit count, and diffstat. |
 | `scripts/workflow/merge.sh inspect` | Read-only merge-readiness inspection against an explicit verified SHA. |
@@ -84,7 +84,7 @@ bash scripts/check-workflow-shell.sh
 bash scripts/test-workflow.sh
 ```
 
-`check-workflow-shell.sh` runs ShellCheck 0.9.0 or newer with source following and the optional `check-extra-masked-returns` check (SC2310/SC2312). It covers `scripts/workflow/*.sh` and `scripts/test-workflow.sh` only. The tests use temporary Git repositories and stubbed GitHub/Paseo commands; they never mutate GitHub or a real workspace. Git URL lookups are stubbed for local transport, while a dedicated case exercises real `git remote get-url` rewrite behavior. Both commands fail explicitly when `jq` or ShellCheck is unavailable.
+`check-workflow-shell.sh` runs ShellCheck 0.9.0 or newer with source following and the optional `check-extra-masked-returns` check (SC2312). `SC2310` was evaluated and is intentionally not enabled because the workflow helpers are invoked in conditions and return explicit statuses. It covers `scripts/workflow/*.sh` and `scripts/test-workflow.sh` only. The tests use temporary Git repositories and stubbed GitHub/Paseo commands; they never mutate GitHub or a real workspace. Git URL lookups are stubbed for local transport, while dedicated cases exercise real `git remote get-url` rewrite behavior and destination disagreement. Both commands fail explicitly when `jq` or ShellCheck is unavailable.
 
 
 ## Documentation validation

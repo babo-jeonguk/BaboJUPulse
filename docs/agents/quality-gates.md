@@ -32,7 +32,7 @@ The exact quality-gate commands are in [Development](../development.md#quality-g
 - `merge.sh` separates read-only inspection from execution and requires the explicit verified SHA. It does not decide whether a review finding is acceptable.
 - `cleanup.sh` is idempotent and retains anything it cannot remove safely. Failed Git state queries and fork or unverified head repositories retain local resources.
 
-`scripts/check-workflow-shell.sh` runs ShellCheck over `scripts/workflow/*.sh` and `scripts/test-workflow.sh` with source following and the optional `check-extra-masked-returns` check for masked exit statuses (SC2310/SC2312). `scripts/test-workflow.sh` supplies synthetic Git repositories and stubbed GitHub/Paseo commands. Both run locally and in the documentation workflow. A change to a workflow script needs its test coverage and review; do not treat the script's convenience as a reason to skip the underlying gate. Missing `jq` or ShellCheck is an explicit dependency failure, not a skipped check.
+`scripts/check-workflow-shell.sh` runs ShellCheck over `scripts/workflow/*.sh` and `scripts/test-workflow.sh` with source following and the optional `check-extra-masked-returns` check for masked exit statuses (SC2312). SC2310 was evaluated and is intentionally not enabled because the workflow helpers are invoked in conditions and return explicit statuses. `scripts/test-workflow.sh` supplies synthetic Git repositories and stubbed GitHub/Paseo commands. Both run locally and in the documentation workflow. A change to a workflow script needs its test coverage and review; do not treat the script's convenience as a reason to skip the underlying gate. Missing `jq` or ShellCheck is an explicit dependency failure, not a skipped check.
 
 A validation result applies only to the commit it names. `validate.sh` exits with status 3 when HEAD or the working tree changes during the run, because the evidence may no longer describe the inspected state. A merge script result is mechanical evidence, not an architecture approval or a substitute for authorized engineering judgment.
 
@@ -50,7 +50,7 @@ A validation result applies only to the commit it names. `validate.sh` exits wit
 | Complexity and coupling | `CA1502` and configured `CA1506` thresholds | God classes, method length, and whether an abstraction earns its keep |
 | Architecture boundaries and cycles | Repository configuration tests; compiler rejects project-reference cycles | Namespace cycles and domain/UI/provider dependency direction until separate assemblies exist; then ArchUnitNET |
 | Duplication | None | Review; introduce a focused analyzer only after a recurring failure |
-| Workflow shell correctness | ShellCheck with source following and SC2310/SC2312 masked-status checks | Whether a script's external command contract and filesystem assumptions are correct |
+| Workflow shell correctness | ShellCheck with source following and SC2312 masked-status checks; SC2310 evaluated but not enabled | Whether a script's external command contract and filesystem assumptions are correct |
 | Security | CodeQL, NuGet audit, dependency review, secret scanning, banned TLS/process APIs | Threat modeling, credential handling, and data-flow review |
 
 The table records coverage, not permission to ignore a manual rule.

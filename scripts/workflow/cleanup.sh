@@ -461,6 +461,10 @@ main_step() {
         block "local_main_head_unreadable"
         return 0
     fi
+    if ! origin_main=$("$GIT_BIN" -C "$root" rev-parse origin/main 2>/dev/null); then
+        block "origin_main_unreadable"
+        return 0
+    fi
     if [ "$current" != "$origin_main" ]; then
         block "local_main_not_synchronized"
         return 0

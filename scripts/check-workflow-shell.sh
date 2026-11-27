@@ -3,8 +3,11 @@
 #
 # Compatible version: ShellCheck 0.11.0 (tested). The script requires 0.9.0 or
 # newer because it enables the optional check-extra-masked-returns check, which
-# reports SC2310/SC2312 for conditionally invoked commands whose exit status is
-# masked. Other optional ShellCheck style checks are not part of this gate.
+# reports SC2312 for conditionally invoked command substitutions and pipelines.
+# SC2310 (check-set-e-suppressed) was evaluated and is intentionally not
+# enabled: the workflow helpers are designed to be invoked in conditions and
+# return explicit 0/1/2 statuses, so SC2310 would flag the intended contract
+# rather than a defect. Other optional style checks are not part of this gate.
 #
 # Usage: bash scripts/check-workflow-shell.sh
 # Exit codes: 0 clean, 1 findings, 2 missing or incompatible dependency.

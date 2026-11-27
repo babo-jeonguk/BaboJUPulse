@@ -3,7 +3,7 @@
 #
 #   validate.sh full
 #       Restore, format, build, test, repository-policy tests, documentation,
-#       public-content checks, and workflow-script tests.
+#       public-content checks, workflow ShellCheck, and workflow-script tests.
 #
 #   validate.sh docs
 #       Documentation and public-content checks only.

@@ -16,6 +16,16 @@ This workflow is for maintainers and coding agents working in this repository. E
 - A maintainer decision when the change affects product scope, licensing, repository settings, or a quality gate.
 - Access to the target repository and the ability to publish a branch or pull request.
 
+## Entry criteria
+
+- The work can be described as a problem, defect, idea, or research question.
+- The target repository and publication boundary are understood.
+- The maintainer is available to resolve a scope, licensing, repository-setting, or quality-gate decision when one is needed.
+
+## Procedure
+
+Follow the stage table below. Use the stage document for the current stage; do not skip a stage because an earlier artifact looks complete.
+
 ## Stages
 
 | Stage | Procedure | Entry | Required output |

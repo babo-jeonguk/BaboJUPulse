@@ -108,20 +108,9 @@ At most one disposition is active. A closed issue keeps its disposition and hist
 - External contributors can request classification; repository permissions determine whether they can apply labels.
 - A label change that hides a blocker, marks unfinished work ready, or closes a valid report without a reason is a workflow violation, not a formatting choice.
 
-## Readiness gate
+## Readiness labels
 
-Before applying `ready-for-agent` or `ready-for-human`, confirm:
-
-- One work type.
-- At least one functional area.
-- One priority.
-- Testable acceptance criteria and stated verification.
-- Explicit scope and out-of-scope items.
-- Known dependencies and no unresolved blocker.
-- No unresolved question that requires a maintainer decision.
-- No reference to inaccessible local-only artifacts.
-
-A completed issue form does not satisfy this gate by itself.
+The readiness conditions are owned by [Issue tracker](issue-tracker.md#triage-to-readiness). Apply `ready-for-agent` or `ready-for-human` only after that gate passes. A completed issue form does not satisfy it by itself.
 
 ## Synchronizing actual labels
 

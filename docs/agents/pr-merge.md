@@ -46,7 +46,7 @@ If the head SHA differs from the reviewed SHA, do not merge. Return to [Code rev
 
 ### 3. Merge with the repository strategy
 
-The repository uses merge commits. Squash and rebase merges are disabled. Preserve the existing strategy unless the maintainer explicitly authorizes a change.
+Use the merge strategy and branch-protection settings owned by [GitHub operations](github-operations.md). Preserve them unless the maintainer explicitly authorizes a change.
 
 ```bash
 gh pr merge <number> --merge --delete-branch
@@ -116,7 +116,7 @@ Update the issue with the merge commit and any follow-up issues for non-blocking
 
 - Merging before required checks pass on the current head.
 - Merging a head that differs from the reviewed commit.
-- Squash or rebase merges, force pushes, or branch-protection bypasses.
+- A merge strategy that differs from [GitHub operations](github-operations.md), force pushes, or branch-protection bypasses.
 - Deleting a worktree with uncommitted changes or meaningful local artifacts.
 - Closing an issue without recording how the work was resolved.
 - Claiming the merge or post-merge CI passed without verifying it.

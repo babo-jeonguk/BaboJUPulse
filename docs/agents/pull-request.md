@@ -35,28 +35,21 @@ If `origin/main` has advanced materially, merge it into the branch, rerun the af
 
 ### 2. Start from the repository template
 
-`gh pr create --template` pre-fills the body from the named file. It does not fetch a template automatically when `--body` is supplied, and API-based creation does not populate repository templates. Use one of these forms:
+`gh pr create --template` pre-fills the body from the named file. It does not fetch a template automatically when `--body` is supplied, and API-based creation does not populate repository templates.
 
-Interactive:
-
-```bash
-gh pr create \
-  --template .github/PULL_REQUEST_TEMPLATE.md \
-  --base main
-```
-
-Non-interactive: copy the template, fill it, and pass the resulting body file:
+The default procedure uses a body file copied from the template so the exact text can be checked before posting:
 
 ```bash
 cp .github/PULL_REQUEST_TEMPLATE.md "<body-file>"
 # Edit the file and replace every placeholder with actual information.
+bash scripts/check-public-content.sh < "<body-file>"
 gh pr create \
   --title "<type>: <subject>" \
   --body-file "<body-file>" \
   --base main
 ```
 
-Do not pass both `--template` and `--body` and assume the template is merged. The body override wins.
+Interactive use of `gh pr create --template .github/PULL_REQUEST_TEMPLATE.md` is acceptable only if you save the completed body and run the checker before submitting. Do not pass both `--template` and `--body` and assume the template is merged; the body override wins.
 
 ### 3. Fill the template with evidence
 

@@ -46,7 +46,7 @@ Read only the documents routed by [AGENTS.md](../../AGENTS.md). For code changes
 - Do not add speculative abstractions or unrelated refactors.
 - Do not add product features the issue does not request.
 
-Test-driven development is permitted but not required. Behavior changes require tests. A bug fix needs a regression test that fails before the fix; a new behavior needs its success path and important failure path covered.
+Test-driven development is optional. Tests are mandatory for behavior changes; follow the testability rules in [Coding standards](../../CODING_STANDARDS.md) and the commands in [Development](../development.md#tests).
 
 ### 4. Verify each slice
 

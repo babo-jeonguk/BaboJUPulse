@@ -14,11 +14,11 @@ Each document has one authoritative responsibility.
 | [Agent operations](agents/README.md) | Map of agent operating procedures |
 | [Development workflow](agents/development-workflow.md) | Overall workflow sequence, stage transitions, and escalation |
 | [Issue tracker](agents/issue-tracker.md) | Issue creation, triage, readiness, and closure |
-| [Triage labels](agents/triage-labels.md) | Label meanings, category cardinality, and readiness |
+| [Triage labels](agents/triage-labels.md) | Label meanings, category cardinality, and label synchronization |
 | [Workspace](agents/workspace.md) | Isolated worktree, branch, and base preparation |
 | [Implementation](agents/implementation.md) | Slice-based implementation and handoff to review |
 | [Code review](agents/code-review.md) | Independent review criteria, findings, and approval SHA |
-| [Review remediation](agents/review-remediation.md) | Finding correction, re-review, and loop escalation |
+| [Review remediation](agents/review-remediation.md) | Finding correction and re-review |
 | [Pull request](agents/pull-request.md) | PR template, evidence, publication checks, and CI |
 | [PR merge](agents/pr-merge.md) | Merge preconditions, post-merge verification, and cleanup |
 | [GitHub operations](agents/github-operations.md) | Publication, local-only artifacts, and repository settings |

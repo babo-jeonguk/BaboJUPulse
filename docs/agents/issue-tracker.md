@@ -39,7 +39,7 @@ Read related issues and pull requests before proposing duplicate work. If a clos
 - **Implementation specification**: problem and objective, verified references, behavioral requirements, constraints, edge cases and failure behavior, out-of-scope items, implementation slices, acceptance criteria, verification requirements, and dependencies. This is the internal development contract.
 - **Technical research**: research question, motivation, required evidence, alternatives, constraints, deliverable, and completion criteria.
 
-Use GitHub Issue Forms for these templates. Use a plain issue only when none of the forms fits, and say why.
+Use GitHub Issue Forms for these templates. The web UI disables blank issues; when none of the forms fits, create a plain issue with `gh issue create` and a self-contained body, and say why the forms did not fit.
 
 ### 3. Draft the issue
 
@@ -122,7 +122,7 @@ An implementation-specification form that is filled in but has unresolved questi
 
 - An issue number and URL.
 - Work type, functional area, and priority labels where applicable.
-- One lifecycle label: `needs-triage`, `needs-info`, `blocked`, `ready-for-agent`, or `ready-for-human`.
+- At most one lifecycle label: `needs-triage`, `needs-info`, `blocked`, `ready-for-agent`, or `ready-for-human`. A closed issue with a disposition, or an in-progress issue after a ready label is removed, may have none.
 - A body that states the acceptance criteria and verification for implementation work.
 - A closing reference when the issue is resolved.
 
@@ -143,7 +143,7 @@ An implementation-specification form that is filled in but has unresolved questi
 
 ## References
 
-- [Triage labels](triage-labels.md) for label meanings, exclusivity, and readiness.
+- [Triage labels](triage-labels.md) for label meanings, category cardinality, and label synchronization.
 - [GitHub operations](github-operations.md) for publication, commits, PRs, and local-only artifacts.
 - [Development workflow](development-workflow.md) for stage transitions.
 - [Coding standards](../../CODING_STANDARDS.md) and [quality gates](quality-gates.md) for implementation requirements.

@@ -5,7 +5,7 @@ Thanks for taking the time to improve BaboJUPulse. The project is currently a fo
 ## Before you start
 
 - Search existing issues and pull requests so you do not duplicate work.
-- Open an issue before implementing a new capability, a cross-cutting change, or anything that changes the product scope. A defect fix with a clear reproduction can usually go straight to a pull request.
+- Open or find an issue for every pull request. A defect fix can use a short issue with the reproduction; a new capability or cross-cutting change needs a fuller specification.
 - Treat the issue as the agreement on behavior. If the requirement is unclear, ask before writing the implementation.
 - Do not report a vulnerability in a public issue. Follow [SECURITY.md](SECURITY.md).
 
@@ -83,13 +83,7 @@ Behavior changes need tests. A bug fix needs a regression test that fails before
 
 Keep the pull request focused on its issue and link the issue with a closing keyword such as `Closes #123`. Start from the repository template at [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md).
 
-Interactive:
-
-```bash
-gh pr create --template .github/PULL_REQUEST_TEMPLATE.md --base main
-```
-
-Non-interactive: copy the template, fill it in, and pass the body file:
+The default procedure copies the template to a body file, fills it in, checks it, and creates the PR:
 
 ```bash
 cp .github/PULL_REQUEST_TEMPLATE.md "<body-file>"
@@ -98,7 +92,7 @@ bash scripts/check-public-content.sh < "<body-file>"
 gh pr create --title "<type>: <subject>" --body-file "<body-file>" --base main
 ```
 
-`gh pr create --body` overrides `--template`, and API-based creation does not populate repository templates. Fill in the actual evidence; do not leave placeholder claims. Use "not applicable" or "unverified" when a check does not apply or did not run.
+Interactive `gh pr create --template .github/PULL_REQUEST_TEMPLATE.md` is acceptable only if you save the completed body and run the checker before submitting. `gh pr create --body` overrides `--template`, and API-based creation does not populate repository templates. Fill in the actual evidence; do not leave placeholder claims. Use "not applicable" or "unverified" when a check does not apply or did not run.
 
 The required CI check is `build` on `windows-latest`. CodeQL and dependency review are advisory unless the maintainer says otherwise.
 

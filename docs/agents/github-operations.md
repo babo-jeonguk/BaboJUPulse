@@ -35,7 +35,6 @@ Authoritative for repository operations and external publication. It does not de
 ## Pull requests and merge
 
 - PR preparation, template use, evidence, and CI verification are owned by [Pull request](pull-request.md). Merge preconditions and cleanup are owned by [PR merge](pr-merge.md).
-- `gh pr create --template` pre-fills from the named file; `--body` overrides it, and API-based creation does not populate repository templates. Start from [`.github/PULL_REQUEST_TEMPLATE.md`](../../.github/PULL_REQUEST_TEMPLATE.md) explicitly.
 - Keep the body self-contained: linked issue, acceptance-criteria coverage, exact reviewed commit SHA, review outcome, actual verification, unverified behavior, risk, and rollback. Do not fabricate a result for a check that did not run.
 - The required status check is `build` on `windows-latest`. It runs restore/audit, formatting, build, tests, repository-policy checks, and public-content checks. The `pull_request` trigger includes `edited`, so a title or body edit is revalidated by CI.
 - CodeQL and dependency review are advisory checks, not required by branch protection.

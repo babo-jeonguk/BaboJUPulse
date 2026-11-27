@@ -8,11 +8,11 @@ This directory holds operating procedures that agents load on demand. [AGENTS.md
 | --- | --- | --- |
 | [Development workflow](development-workflow.md) | Overall stage sequence, transition rules, review-loop limits, and escalation | Detailed stage procedure, code rules, commands |
 | [Issue tracker](issue-tracker.md) | Issue creation, triage operations, readiness, and closure | Label definitions, publication policy |
-| [Triage labels](triage-labels.md) | Label meanings, category cardinality, readiness labels, and label synchronization | Issue procedure, GitHub publication policy |
+| [Triage labels](triage-labels.md) | Label meanings, category cardinality, and label synchronization | Readiness gate, issue procedure, publication policy |
 | [Workspace](workspace.md) | Worktree, branch, base, and workspace verification | Build commands, issue readiness, merge cleanup |
-| [Implementation](implementation.md) | Slice-based implementation, test expectations, and handoff to review | Coding rules, verification policy, commands |
+| [Implementation](implementation.md) | Slice-based implementation and handoff to review | Coding rules, test rules, verification policy, commands |
 | [Code review](code-review.md) | Independent review scope, finding format, and approval SHA | Remediation procedure, coding rules |
-| [Review remediation](review-remediation.md) | Finding disposition, correction, re-review, and loop escalation | Review criteria, gate policy |
+| [Review remediation](review-remediation.md) | Finding disposition, correction, and re-review | Review criteria, escalation limits, gate policy |
 | [Pull request](pull-request.md) | PR template use, evidence, publication checks, and CI verification | Merge procedure, publication policy details |
 | [PR merge](pr-merge.md) | Merge preconditions, post-merge verification, and workspace cleanup | Branch protection settings, PR preparation |
 

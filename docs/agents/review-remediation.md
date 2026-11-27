@@ -54,18 +54,11 @@ Create a new commit or a coherent set of commits. Do not force-push over reviewe
 
 Request review of the new head SHA. The reviewer must confirm whether the previous blocking findings are resolved and whether the changes introduced new issues. Approval of the previous commit does not carry forward.
 
-## Loop limits and escalation
+## Escalation
 
-Stop and ask the maintainer when any of these occurs:
+The loop limits and escalation triggers are owned by [Development workflow](development-workflow.md#review-and-remediation-loop). Do not continue an unlimited loop, merge around a disagreement, or weaken a gate to end it.
 
-- The same blocking finding remains after two remediation rounds.
-- Three review rounds complete without convergence.
-- Reviewer and implementer disagree about whether a finding is valid or blocking.
-- The disagreement is about a requirement, acceptance criterion, security concern, or quality gate.
-- The issue needs a scope, dependency, or acceptance-criteria change.
-- CI or tooling is unavailable, flaky, or cannot distinguish an infrastructure failure from a product failure.
-
-The escalation message states the finding, the evidence, the attempted corrections, the disputed rule or requirement, and the decision needed. Do not continue an unlimited loop, merge around the disagreement, or weaken the gate to end it.
+When escalation is required, provide the finding, the evidence, the attempted corrections, the disputed rule or requirement, and the decision needed. Stop implementation until the maintainer resolves it.
 
 ## Required outputs
 

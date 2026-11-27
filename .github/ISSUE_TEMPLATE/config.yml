@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Contributing guide
+    url: https://github.com/babo-jeonguk/BaboJUPulse/blob/main/CONTRIBUTING.md
+    about: Read this before opening an issue or pull request.
   - name: Security report
     url: https://github.com/babo-jeonguk/BaboJUPulse/security/advisories/new
     about: Report a vulnerability privately. Do not open a public issue.

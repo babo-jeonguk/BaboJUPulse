@@ -15,7 +15,15 @@ public sealed class CiWorkflowTests
         Assert.Equal("build", StringValue(build, "name"));
         Assert.Null(Child(build, "if"));
         Assert.Null(Child(build, "continue-on-error"));
-        Assert.Equal("read", StringValue(RequireMapping(root, "permissions"), "contents"));
+        var permissions = RequireMapping(root, "permissions");
+        Assert.Equal("read", StringValue(permissions, "contents"));
+        AssertReadOnlyPermissions(permissions, "workflow");
+
+        if (Child(build, "permissions") is YamlMappingNode jobPermissions)
+        {
+            AssertReadOnlyPermissions(jobPermissions, "build job");
+        }
+
         Assert.True(HasPullRequestTrigger(root), "CI must run on pull requests");
 
         var steps = RequireSequence(build, "steps");
@@ -73,10 +81,61 @@ public sealed class CiWorkflowTests
             runs.Any(run => run.Contains("RunConfiguration.TreatNoTestsAsError=true", StringComparison.Ordinal)),
             "No-test runs must not pass silently");
 
+        var publicContentStep = steps.Children
+            .Select(node => (YamlMappingNode)node)
+            .Single(step => StringValue(step, "name") == "Check public content");
+        var publicContentRun = StringValue(publicContentStep, "run");
+        Assert.NotNull(publicContentRun);
+        Assert.Contains(
+            "bash scripts/check-public-content.sh --tracked",
+            publicContentRun,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "bash scripts/test-public-content.sh",
+            publicContentRun,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "printf '%s\\n\\n%s\\n' \"$PR_TITLE\" \"$PR_BODY\" | bash scripts/check-public-content.sh",
+            publicContentRun,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "git log --format=%B \"$BASE_SHA..$HEAD_SHA\" | bash scripts/check-public-content.sh",
+            publicContentRun,
+            StringComparison.Ordinal);
+        var publicContentEnvironment = RequireMapping(publicContentStep, "env");
+        Assert.Equal(
+            "${{ github.event.pull_request.title }}",
+            StringValue(publicContentEnvironment, "PR_TITLE"));
+        Assert.Equal(
+            "${{ github.event.pull_request.body }}",
+            StringValue(publicContentEnvironment, "PR_BODY"));
+
         var checkout = steps.Children
             .Select(node => (YamlMappingNode)node)
             .Single(step => StringValue(step, "uses")?.StartsWith("actions/checkout@", StringComparison.Ordinal) == true);
         Assert.Equal("0", StringValue(RequireMapping(checkout, "with"), "fetch-depth"));
+    }
+
+    [Fact]
+    public void PublicContentChecksRerunWhenPullRequestTextChanges()
+    {
+        var root = LoadWorkflow();
+        var trigger = Child(root, "on") ?? Child(root, "true");
+        var triggerMapping = Assert.IsType<YamlMappingNode>(trigger);
+        Assert.Null(Child(triggerMapping, "pull_request_target"));
+        var pullRequest = Assert.IsType<YamlMappingNode>(Child(triggerMapping, "pull_request"));
+        var types = Assert.IsType<YamlSequenceNode>(Child(pullRequest, "types"));
+        var configured = types.Children
+            .OfType<YamlScalarNode>()
+            .Select(node => node.Value)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var required in new[] { "opened", "synchronize", "reopened", "edited" })
+        {
+            Assert.True(
+                configured.Contains(required),
+                $"Public-content validation must run when a pull request is '{required}'");
+        }
     }
 
     [Fact]
@@ -111,6 +170,18 @@ public sealed class CiWorkflowTests
             YamlScalarNode scalar => scalar.Value?.Contains("pull_request", StringComparison.Ordinal) == true,
             _ => false,
         };
+    }
+
+    private static void AssertReadOnlyPermissions(YamlMappingNode permissions, string scope)
+    {
+        foreach (var permission in permissions.Children)
+        {
+            var name = ((YamlScalarNode)permission.Key).Value ?? "<unnamed>";
+            var value = (permission.Value as YamlScalarNode)?.Value;
+            Assert.False(
+                value?.Contains("write", StringComparison.OrdinalIgnoreCase) == true,
+                $"{scope} permission '{name}' must remain read-only");
+        }
     }
 
     private static bool HasRun(IEnumerable<string> runs, string prefix) =>

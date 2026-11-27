@@ -1,0 +1,92 @@
+# Review remediation
+
+Authoritative for resolving review findings and requesting re-review. Loop limits and escalation live in [Development workflow](development-workflow.md); review criteria live in [Code review](code-review.md); verification policy lives in [Quality gates](quality-gates.md).
+
+## Purpose
+
+Resolve valid blocking findings at their root cause, provide evidence, and return the change to review without an unbounded loop or a silent gate change.
+
+## Required inputs
+
+- The review report with the reviewed commit SHA.
+- The issue acceptance criteria.
+- The implementation worktree and branch.
+- Verification evidence for the reviewed commit.
+
+## Entry criteria
+
+- At least one blocking finding exists, or a reviewer requested changes for a requirement clarification.
+- The reviewed SHA is known and the branch has not moved without explanation.
+
+## Procedure
+
+### 1. Triage every finding
+
+For each finding, decide explicitly:
+
+- **Valid and blocking**: fix it.
+- **Valid but non-blocking**: record it for the current change or a follow-up issue, according to the reviewer's severity.
+- **Duplicate**: link the finding it duplicates.
+- **Incorrect or out of scope**: explain why with evidence, and ask the reviewer or maintainer to resolve the disagreement.
+
+Do not ignore a finding silently. Do not mark it resolved because a comment was added, a test was weakened, or the acceptance criterion was rewritten.
+
+### 2. Fix the root cause
+
+- Change the implementation, not the gate.
+- Add or update a regression test when the finding describes a behavior defect.
+- Keep the fix within the issue's scope unless the maintainer approves a scope change.
+- If a finding reveals that the requirement is wrong or ambiguous, stop and request a maintainer decision before coding around it.
+
+### 3. Rerun affected verification
+
+Run the checks affected by the change, then the full required suite before sending the new head to review. Record the actual commands and results.
+
+### 4. Commit and report
+
+Create a new commit or a coherent set of commits. Do not force-push over reviewed history unless the repository policy and reviewer explicitly allow it. For each finding, report:
+
+- The disposition.
+- The commit or file that addresses it.
+- The verification that proves the correction.
+
+### 5. Request re-review
+
+Request review of the new head SHA. The reviewer must confirm whether the previous blocking findings are resolved and whether the changes introduced new issues. Approval of the previous commit does not carry forward.
+
+## Escalation
+
+The loop limits and escalation triggers are owned by [Development workflow](development-workflow.md#review-and-remediation-loop). Do not continue an unlimited loop, merge around a disagreement, or weaken a gate to end it.
+
+When escalation is required, provide the finding, the evidence, the attempted corrections, the disputed rule or requirement, and the decision needed. Stop implementation until the maintainer resolves it.
+
+## Required outputs
+
+- A disposition for every blocking finding.
+- Corrected commits and regression coverage where applicable.
+- Verification evidence for the new head.
+- A re-review request naming the exact new SHA.
+- An escalation record when a loop limit is reached.
+
+## Exit criteria
+
+- Every valid blocking finding is resolved and verified.
+- The reviewer approves the exact current head commit.
+- No finding was silently dismissed or converted into an unapproved gate change.
+
+## Prohibited actions
+
+- Marking a finding resolved without changing the code or proving it is invalid.
+- Weakening, disabling, or suppressing a check to obtain approval.
+- Rewriting acceptance criteria to match incomplete work without maintainer approval.
+- Force-pushing over a reviewed commit and presenting the result as reviewed.
+- Continuing indefinite review rounds instead of escalating.
+- Publishing raw private evidence while discussing a finding.
+
+## References
+
+- [Code review](code-review.md) for finding format and review decision.
+- [Implementation](implementation.md) for the implementation rules that still apply.
+- [Quality gates](quality-gates.md) for suppressions, gate changes, and verification.
+- [Development workflow](development-workflow.md) for stage transitions and escalation.
+- [Pull request](pull-request.md) for the next stage after convergence.

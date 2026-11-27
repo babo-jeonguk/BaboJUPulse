@@ -6,21 +6,44 @@ body:
   - type: markdown
     attributes:
       value: |
-        Do not include credentials, account data, local absolute paths, or references to local-only working artifacts. Use self-contained public references or tracked files.
+        Describe the user problem and the desired behavior. You do not need to provide an architectural design or implementation plan. Do not include credentials, account data, local absolute paths, or references to local-only working artifacts.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and pull requests for this request.
+          required: true
+        - label: I removed credentials, account data, and local-only paths from the request.
+          required: true
   - type: textarea
     id: problem
     attributes:
-      label: Problem
-      description: What user problem does this solve? Describe the situation, not the implementation.
+      label: User problem
+      description: What situation is difficult or impossible today? Describe the user need, not only the proposed implementation.
     validations:
       required: true
   - type: textarea
-    id: proposal
+    id: desired-behavior
     attributes:
-      label: Proposed solution
+      label: Desired behavior
       description: What should the product do? Include the taskbar or tray surface when relevant.
     validations:
       required: true
+  - type: textarea
+    id: benefit
+    attributes:
+      label: Expected benefit
+      description: Who benefits, and what becomes easier or safer?
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and scope
+      description: Does this affect one provider, all providers, or the system-monitoring path? What should explicitly stay out of scope?
+    validations:
+      required: false
   - type: textarea
     id: alternatives
     attributes:
@@ -29,14 +52,7 @@ body:
     validations:
       required: false
   - type: textarea
-    id: scope
-    attributes:
-      label: Scope and provider impact
-      description: Does this affect one provider, all providers, or the system-monitoring path? What should explicitly stay out of scope?
-    validations:
-      required: true
-  - type: textarea
-    id: evidence
+    id: references
     attributes:
       label: References
       description: Link provider documentation, API documentation, or comparable behavior. Do not include credentials or account data.

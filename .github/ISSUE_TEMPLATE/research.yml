@@ -1,0 +1,58 @@
+name: Technical research
+description: Investigate a question that needs evidence before implementation or a decision.
+title: "[Research]: "
+labels: ["research", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when the deliverable is evidence, a comparison, or a decision rather than product code. Do not include credentials, account data, local absolute paths, or references to local-only working artifacts.
+  - type: textarea
+    id: question
+    attributes:
+      label: Research question
+      description: State the question precisely. What decision or implementation work depends on the answer?
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Why is this research needed now? What happens if the question is left unanswered?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Required evidence
+      description: What primary sources, API behavior, Windows behavior, benchmarks, or repository facts must be checked?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives to investigate
+      description: Which approaches, libraries, providers, or designs should be compared?
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Name time, licensing, compatibility, security, privacy, or platform constraints that limit the recommendation.
+    validations:
+      required: true
+  - type: textarea
+    id: deliverable
+    attributes:
+      label: Expected deliverable
+      description: What should be produced? For example, a decision record, a comparison table, a tracked research note, or an updated issue.
+    validations:
+      required: true
+  - type: textarea
+    id: completion
+    attributes:
+      label: Research completion criteria
+      description: What evidence or decision makes this research complete?
+    validations:
+      required: true

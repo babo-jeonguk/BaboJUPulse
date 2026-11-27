@@ -39,6 +39,7 @@ The foundation build has no tray or taskbar host, so it exits immediately after 
 Run these before opening a PR and after the final change:
 
 ```powershell
+dotnet restore BaboJUPulse.slnx
 dotnet format BaboJUPulse.slnx --verify-no-changes --no-restore
 dotnet build BaboJUPulse.slnx -c Release --no-restore -warnaserror
 dotnet test BaboJUPulse.slnx -c Release --no-build
@@ -46,6 +47,7 @@ dotnet test BaboJUPulse.slnx -c Release --no-build
 
 | Gate | What it proves |
 | --- | --- |
+| `dotnet restore` | Package source pinning and transitive NuGet auditing |
 | `dotnet format --verify-no-changes` | The tree matches `.editorconfig`; no formatting drift |
 | `dotnet build -warnaserror` | Compiler, nullable, .NET analyzer, and code-style analyzer checks pass |
 | `dotnet test` | Behavior and repository-invariant tests pass |

@@ -51,12 +51,13 @@ The foundation host exits immediately after startup because there is no tray or 
 ## Quality gates
 
 ```powershell
+dotnet restore BaboJUPulse.slnx
 dotnet format BaboJUPulse.slnx --verify-no-changes --no-restore
 dotnet build BaboJUPulse.slnx -c Release --no-restore -warnaserror
 dotnet test BaboJUPulse.slnx -c Release --no-build
 ```
 
-CI runs the same gates on `windows-latest`. Warnings are errors, nullable reference types are enabled, and formatting is verified rather than auto-applied.
+CI runs the same gates on `windows-latest`. Warnings are errors, nullable reference types are enabled, formatting is verified rather than auto-applied, and restore audits direct and transitive packages.
 
 ## Documentation
 

@@ -5,6 +5,8 @@
 - Windows 10 version 2004 (build 19041) or later, or Windows 11.
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). The repository pins `10.0.404` in `global.json`; newer patches in the same feature band are accepted.
 - Git for Windows, or Git in WSL.
+- [jq](https://jqlang.org/) 1.6 or newer for workflow-script Paseo parsing and the workflow tests.
+- [ShellCheck](https://github.com/koalaman/shellcheck) 0.11.0 for workflow-script validation; 0.9.0 or newer is accepted. The CI documentation job installs the pinned 0.11.0 release.
 - Optional: Visual Studio 2022 17.14+ with the **.NET desktop development** workload, or JetBrains Rider.
 
 Linux and WSL can compile the Windows-targeted projects because `EnableWindowsTargeting` is enabled. They cannot run the WPF executable. Runtime checks require Windows.
@@ -58,30 +60,31 @@ Required checks, suppression approval, analyzer changes, gate integrity, and enf
 
 ## Workflow scripts
 
-`scripts/workflow/` provides deterministic entry points for the mechanical parts of the development workflow. They require Bash and Git; `gh` is required for GitHub operations, and Paseo is required only for workspace cleanup when the workspace is Paseo-managed. The individual commands above remain authoritative; the scripts sequence them and fail closed.
+`scripts/workflow/` provides deterministic entry points for the mechanical parts of the development workflow. They require Bash, Git, and `jq`; `gh` is required for GitHub operations, ShellCheck is required for workflow-script validation, and Paseo is required only for workspace cleanup when the workspace is Paseo-managed. The individual commands above remain authoritative; the scripts sequence them and fail closed. A missing required command fails with an explicit dependency error instead of being treated as empty state.
 
 | Script | Use |
 | --- | --- |
 | `scripts/workflow/workspace.sh prepare` | Verify the repository and issue, refresh `origin/main`, capture the base SHA, and detect an existing branch or worktree before a Paseo workspace operation. |
 | `scripts/workflow/workspace.sh verify` | Verify the worktree, branch, base ancestry, current `origin/main` ancestry, and clean state after workspace creation. |
-| `scripts/workflow/validate.sh targeted` | Run selected gates after a slice, for example `--format --build --test`, `--docs`, `--policy`, or `--workflow`. |
+| `scripts/workflow/validate.sh targeted` | Run selected gates after a slice, for example `--format --build --test`, `--docs`, `--policy`, or `--workflow`. The workflow check runs ShellCheck and the workflow-script tests. |
 | `scripts/workflow/validate.sh full` | Run restore, format, build, tests, repository-policy tests, documentation, public content, and workflow-script tests. |
 | `scripts/workflow/validate.sh docs` | Run documentation and public-content checks only. |
 | `scripts/workflow/validate.sh range` | Verify and print a base-to-head review range, commit count, and diffstat. |
 | `scripts/workflow/merge.sh inspect` | Read-only merge-readiness inspection against an explicit verified SHA. |
 | `scripts/workflow/merge.sh execute` | Merge only after inspection passes, using the original verified SHA as `--match-head-commit`. It never deletes a branch; cleanup owns that decision. |
-| `scripts/workflow/cleanup.sh inspect` | Read-only post-merge cleanup inspection, including repository, worktree, branch, workspace, and agent identity. |
-| `scripts/workflow/cleanup.sh execute` | Verify repository and merge ancestry, retain unmerged local work, delete a safe same-repository remote branch with a lease, fast-forward local `main`, archive an ownership-verified Paseo workspace, remove a clean worktree, and delete the merged local branch. Use `--remove-build-output` only for fully reproducible generated output. |
+| `scripts/workflow/cleanup.sh inspect` | Read-only post-merge cleanup inspection, including effective repository identity, worktree, branch, workspace, agent identity, and Git query failures. |
+| `scripts/workflow/cleanup.sh execute` | Verify repository and merge ancestry, retain unmerged local work, delete a safe same-repository remote branch with a lease, fast-forward local `main`, archive an ownership-verified Paseo workspace, remove a clean worktree, and delete the merged local branch. A fork or unverified PR head repository retains local branch, worktree, and workspace resources. A failed tracked, untracked, or ignored-content query blocks the affected destructive step. Use `--remove-build-output` only for fully reproducible generated output. |
 
 Run `scripts/workflow/<script>.sh --help` for the exact options. `validate.sh` reports the repository, commit, dirty state, checks, and results. `workspace.sh` reports the base and head plus worktree cleanliness; `merge.sh` and `cleanup.sh` report the PR, SHAs, evaluated conditions, and final state. A failed required check exits nonzero; a concurrent HEAD or working-tree change during validation exits with status 3. Do not treat a script result as permission to skip review, documentation freshness, or a maintainer decision.
 
-Run the workflow-script tests directly:
+Run the scoped static check and the workflow-script tests directly:
 
 ```bash
+bash scripts/check-workflow-shell.sh
 bash scripts/test-workflow.sh
 ```
 
-They use temporary Git repositories and stubbed GitHub/Paseo commands; they never mutate GitHub or a real workspace.
+`check-workflow-shell.sh` runs ShellCheck 0.9.0 or newer with source following and the optional `check-extra-masked-returns` check (SC2310/SC2312). It covers `scripts/workflow/*.sh` and `scripts/test-workflow.sh` only. The tests use temporary Git repositories and stubbed GitHub/Paseo commands; they never mutate GitHub or a real workspace. Git URL lookups are stubbed for local transport, while a dedicated case exercises real `git remote get-url` rewrite behavior. Both commands fail explicitly when `jq` or ShellCheck is unavailable.
 
 
 ## Documentation validation
@@ -95,7 +98,7 @@ bash scripts/check-documentation.sh
 
 The checker validates relative links, heading fragments, Git-ignored targets, local absolute paths, table shape, fenced-code closure, and the public-content policy. The repository-policy test invokes the same script, so there is one implementation of the rules. Policy and limitations are in [Quality gates](agents/quality-gates.md#documentation-validation).
 
-The separate [documentation workflow](../.github/workflows/docs.yml) runs the same checks, the workflow-script tests, and the public-content tests on every pull request and push to `main`. It is not a branch-protection required check; the existing `build` workflow remains required and still runs on documentation-only commits.
+The separate [documentation workflow](../.github/workflows/docs.yml) runs the same checks, the public-content tests, ShellCheck over the scoped workflow scripts, and the workflow-script tests on every pull request and push to `main`. It installs the pinned ShellCheck 0.11.0 release and requires `jq`; a missing dependency fails the job explicitly. It is not a branch-protection required check; the existing `build` workflow remains required and still runs on documentation-only commits.
 
 ## Tests
 
@@ -156,6 +159,8 @@ The internal sequence is defined in [Development workflow](agents/development-wo
 | Repository-policy test fails | A source suppression, nested config, disabled analyzer, weakened threshold, conditional CI step, or null-forgiving operator was introduced | Fix the code/configuration or request maintainer approval under [Quality gates](agents/quality-gates.md) |
 | Documentation checker rejects a file | A relative link or fragment is broken, a target is Git-ignored or local, a table has inconsistent columns, or a fence is unclosed | Use the reported rule and line to fix the document; rerun `bash scripts/check-documentation.sh` |
 | Public-content checker rejects text | A concrete local-only artifact path, local absolute path, or obvious secret pattern matched | Use the reported rule and line to fix the text locally; do not paste the matching value into a comment |
+| Workflow scripts fail with `required command is unavailable: jq` | `jq` is not installed or not on `PATH` | Install `jq` 1.6 or newer before running Paseo parsing or the workflow tests |
+| `check-workflow-shell.sh` fails with `required command is unavailable: shellcheck` | ShellCheck is not installed or not on `PATH` | Install ShellCheck 0.11.0, or any 0.9.0+ release |
 
 ## Releases
 

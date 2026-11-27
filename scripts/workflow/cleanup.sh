@@ -33,6 +33,7 @@ set -euo pipefail
 
 WORKFLOW_NAME=cleanup
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=scripts/workflow/common.sh
 source "$script_dir/common.sh"
 
 usage() {
@@ -88,12 +89,59 @@ normalize_path() {
     workflow_normalize_path "$1"
 }
 
-worktree_registered() {
-    local root=$1
-    local path=$2
-    "$GIT_BIN" -C "$root" worktree list --porcelain \
-        | awk '$1 == "worktree" { print substr($0, 10) }' \
-        | grep -Fxq -- "$path"
+worktree_registration_state() {
+    local path=$1
+    workflow_worktree_registered "$root" "$path"
+}
+
+verify_worktree_identity() {
+    local path=$1
+    local prefix=$2
+    local not_root_reason=$3
+    local prefix_check
+    local root_common
+    local worktree_common
+    local worktree_branch
+    if ! prefix_check=$("$GIT_BIN" -C "$path" rev-parse --show-prefix 2>/dev/null); then
+        block "${prefix}_repository_unverified"
+        return 1
+    fi
+    if [ -n "$prefix_check" ]; then
+        block "$not_root_reason"
+        return 1
+    fi
+    if ! root_common="$(workflow_git_common_dir "$root")"; then
+        block "repository_identity_unverified"
+        return 1
+    fi
+    if ! worktree_common="$(workflow_git_common_dir "$path")"; then
+        block "${prefix}_repository_unverified"
+        return 1
+    fi
+    if [ "$root_common" != "$worktree_common" ]; then
+        block "${prefix}_repository_mismatch"
+        return 1
+    fi
+    if ! worktree_branch=$("$GIT_BIN" -C "$path" branch --show-current 2>/dev/null); then
+        block "${prefix}_branch_unreadable"
+        return 1
+    fi
+    if [ "$worktree_branch" != "$branch" ]; then
+        block "${prefix}_branch_mismatch"
+        return 1
+    fi
+    return 0
+}
+
+verify_worktree_content() {
+    local path=$1
+    local status=0
+    workflow_worktree_status "$path" "$remove_build_output" || status=$?
+    case "$status" in
+        0) return 0 ;;
+        1) block "worktree_has_local_content"; return 1 ;;
+        *) block "worktree_status_failed"; return 1 ;;
+    esac
 }
 
 load_pr() {
@@ -175,11 +223,21 @@ verify_merge() {
 }
 
 branch_preflight() {
-    if ! workflow_branch_exists "$root" "$branch"; then
-        local_branch_state=absent
-        local_branch_merged=yes
-        return 0
-    fi
+    local exists=0
+    workflow_branch_exists "$root" "$branch" || exists=$?
+    case "$exists" in
+        1)
+            local_branch_state=absent
+            local_branch_merged=yes
+            return 0
+            ;;
+        0) ;;
+        *)
+            block "local_branch_query_failed"
+            local_branch_merged=no
+            return 0
+            ;;
+    esac
     local_branch_state=present
     local tip
     if ! tip=$("$GIT_BIN" -C "$root" rev-parse --verify "refs/heads/$branch^{commit}" 2>/dev/null); then
@@ -189,13 +247,22 @@ branch_preflight() {
         return 0
     fi
     printf 'cleanup: local_branch=present sha=%s\n' "$tip"
-    if ! "$GIT_BIN" -C "$root" merge-base --is-ancestor "$tip" origin/main; then
-        block "local_branch_commits_not_merged"
-        local_branch_merged=no
-        return 0
-    fi
-    local_branch_merged=yes
-    printf 'cleanup: local_branch_ancestry=merged\n'
+    local ancestry=0
+    "$GIT_BIN" -C "$root" merge-base --is-ancestor "$tip" origin/main || ancestry=$?
+    case "$ancestry" in
+        0)
+            local_branch_merged=yes
+            printf 'cleanup: local_branch_ancestry=merged\n'
+            ;;
+        1)
+            block "local_branch_commits_not_merged"
+            local_branch_merged=no
+            ;;
+        *)
+            block "local_branch_ancestry_failed"
+            local_branch_merged=no
+            ;;
+    esac
 }
 
 remote_step() {
@@ -258,7 +325,18 @@ remote_step() {
 }
 
 main_identity_preflight() {
-    local path=${main_worktree:-$(workflow_main_worktree)}
+    local path
+    local prefix
+    local root_common
+    local main_common
+    if [ -n "$main_worktree" ]; then
+        path=$main_worktree
+    else
+        path="$(workflow_main_worktree)" || {
+            block "local_main_query_failed"
+            return 0
+        }
+    fi
     if [ -z "$path" ]; then
         return 0
     fi
@@ -269,11 +347,14 @@ main_identity_preflight() {
         fi
         return 0
     fi
-    if [ -n "$("$GIT_BIN" -C "$path" rev-parse --show-prefix 2>/dev/null)" ]; then
+    if ! prefix=$("$GIT_BIN" -C "$path" rev-parse --show-prefix 2>/dev/null); then
+        block "local_main_repository_unverified"
+        return 0
+    fi
+    if [ -n "$prefix" ]; then
         block "local_main_worktree_not_root"
         return 0
     fi
-    local root_common main_common
     if ! root_common="$(workflow_git_common_dir "$root")"; then
         block "repository_identity_unverified"
         return 0
@@ -288,14 +369,34 @@ main_identity_preflight() {
 }
 
 main_step() {
-    local path=${main_worktree:-$(workflow_main_worktree)}
+    local path
+    local prefix
+    local current_branch
+    local dirty
+    local ancestry
+    local current
+    local origin_main
+    if [ -n "$main_worktree" ]; then
+        path=$main_worktree
+    else
+        path="$(workflow_main_worktree)" || {
+            block "local_main_query_failed"
+            return 0
+        }
+    fi
     if [ -z "$path" ]; then
         printf 'cleanup: local_main=absent reason=no_main_worktree\n'
         return 0
     fi
-    if [ -d "$path" ] && [ -n "$("$GIT_BIN" -C "$path" rev-parse --show-prefix 2>/dev/null)" ]; then
-        block "local_main_worktree_not_root"
-        return 0
+    if [ -d "$path" ]; then
+        if ! prefix=$("$GIT_BIN" -C "$path" rev-parse --show-prefix 2>/dev/null); then
+            block "local_main_repository_unverified"
+            return 0
+        fi
+        if [ -n "$prefix" ]; then
+            block "local_main_worktree_not_root"
+            return 0
+        fi
     fi
     path="$(normalize_path "$path")"
     if [ ! -d "$path" ]; then
@@ -306,22 +407,45 @@ main_step() {
         fi
         return 0
     fi
-    if [ "$("$GIT_BIN" -C "$path" branch --show-current)" != "main" ]; then
+    if ! current_branch=$("$GIT_BIN" -C "$path" branch --show-current 2>/dev/null); then
+        block "local_main_branch_unreadable"
+        return 0
+    fi
+    if [ "$current_branch" != "main" ]; then
         block "local_main_worktree_not_main"
         return 0
     fi
-    if [ -n "$("$GIT_BIN" -C "$path" status --porcelain --untracked-files=all)" ]; then
+    if ! dirty=$("$GIT_BIN" -C "$path" status --porcelain --untracked-files=all 2>/dev/null); then
+        block "local_main_status_failed"
+        return 0
+    fi
+    if [ -n "$dirty" ]; then
         block "local_main_dirty"
         return 0
     fi
-    if ! "$GIT_BIN" -C "$path" merge-base --is-ancestor HEAD origin/main; then
-        block "local_main_diverged"
+    ancestry=0
+    "$GIT_BIN" -C "$path" merge-base --is-ancestor HEAD origin/main || ancestry=$?
+    case "$ancestry" in
+        0) ;;
+        1)
+            block "local_main_diverged"
+            return 0
+            ;;
+        *)
+            block "local_main_ancestry_failed"
+            return 0
+            ;;
+    esac
+
+    if ! current=$("$GIT_BIN" -C "$path" rev-parse HEAD 2>/dev/null); then
+        block "local_main_head_unreadable"
         return 0
     fi
-
-    local current
-    current=$("$GIT_BIN" -C "$path" rev-parse HEAD)
-    if [ "$current" = "$("$GIT_BIN" -C "$root" rev-parse origin/main)" ]; then
+    if ! origin_main=$("$GIT_BIN" -C "$root" rev-parse origin/main 2>/dev/null); then
+        block "origin_main_unreadable"
+        return 0
+    fi
+    if [ "$current" = "$origin_main" ]; then
         printf 'cleanup: local_main=unchanged sha=%s\n' "$current"
         return 0
     fi
@@ -333,8 +457,11 @@ main_step() {
         block "local_main_fast_forward_failed"
         return 0
     fi
-    current=$("$GIT_BIN" -C "$path" rev-parse HEAD)
-    if [ "$current" != "$("$GIT_BIN" -C "$root" rev-parse origin/main)" ]; then
+    if ! current=$("$GIT_BIN" -C "$path" rev-parse HEAD 2>/dev/null); then
+        block "local_main_head_unreadable"
+        return 0
+    fi
+    if [ "$current" != "$origin_main" ]; then
         block "local_main_not_synchronized"
         return 0
     fi
@@ -352,12 +479,28 @@ workspace_record() {
     printf '%s' "$record"
 }
 
-local_branch_ancestry_merged() {
+local_branch_ancestry_state() {
     local tip
+    local ancestry=0
     if ! tip=$("$GIT_BIN" -C "$root" rev-parse --verify "refs/heads/$branch^{commit}" 2>/dev/null); then
-        return 1
+        return 2
     fi
-    "$GIT_BIN" -C "$root" merge-base --is-ancestor "$tip" origin/main
+    "$GIT_BIN" -C "$root" merge-base --is-ancestor "$tip" origin/main || ancestry=$?
+    case "$ancestry" in
+        0) return 0 ;;
+        1) return 1 ;;
+        *) return 2 ;;
+    esac
+}
+
+require_local_branch_merged() {
+    local state=0
+    local_branch_ancestry_state || state=$?
+    case "$state" in
+        0) return 0 ;;
+        1) block "local_branch_commits_not_merged"; return 1 ;;
+        *) block "local_branch_ancestry_failed"; return 1 ;;
+    esac
 }
 
 workspace_agent_safety() {
@@ -370,9 +513,9 @@ workspace_agent_safety() {
         block "workspace_agent_query_failed"
         return 1
     fi
-    local agent_id agent_status agent_cwd agent_workspace agent_name
+    local agent_id agent_status agent_cwd agent_workspace
     local agent_path in_target
-    while IFS=$'\x1f' read -r agent_id agent_status agent_cwd agent_workspace agent_name; do
+    while IFS=$'\x1f' read -r agent_id agent_status agent_cwd agent_workspace; do
         [ -n "$agent_id" ] || continue
         agent_path=""
         if [ -n "$agent_cwd" ]; then
@@ -422,8 +565,8 @@ verify_workspace_for_archive() {
         return 1
     fi
 
-    local record_id record_cwd record_project record_isolation
-    IFS=$'\x1f' read -r record_id record_cwd record_project record_isolation <<< "$record"
+    local record_id record_cwd
+    IFS=$'\x1f' read -r record_id record_cwd <<< "$record"
     if [ "$record_id" != "$id" ]; then
         block "workspace_record_mismatch"
         return 1
@@ -440,40 +583,21 @@ verify_workspace_for_archive() {
     fi
 
     if [ -d "$expected" ]; then
-        if [ -n "$("$GIT_BIN" -C "$expected" rev-parse --show-prefix 2>/dev/null)" ]; then
-            block "workspace_worktree_not_root"
-            return 1
-        fi
-        local worktree_common root_common
-        if ! worktree_common="$(workflow_git_common_dir "$expected")"; then
-            block "workspace_repository_unverified"
-            return 1
-        fi
-        if ! root_common="$(workflow_git_common_dir "$root")"; then
-            block "repository_identity_unverified"
-            return 1
-        fi
-        if [ "$worktree_common" != "$root_common" ]; then
-            block "workspace_repository_mismatch"
-            return 1
-        fi
-        local worktree_branch
-        if ! worktree_branch=$("$GIT_BIN" -C "$expected" branch --show-current); then
-            block "workspace_branch_unreadable"
-            return 1
-        fi
-        if [ "$worktree_branch" != "$branch" ]; then
-            block "workspace_branch_mismatch"
-            return 1
-        fi
-        if ! worktree_registered "$root" "$expected"; then
-            block "workspace_worktree_not_registered"
-            return 1
-        fi
-        if ! workflow_worktree_status "$expected" "$remove_build_output"; then
-            block "worktree_has_local_content"
-            return 1
-        fi
+        verify_worktree_identity "$expected" workspace workspace_worktree_not_root || return 1
+        local registration=0
+        worktree_registration_state "$expected" || registration=$?
+        case "$registration" in
+            0) ;;
+            1)
+                block "workspace_worktree_not_registered"
+                return 1
+                ;;
+            *)
+                block "worktree_registration_query_failed"
+                return 1
+                ;;
+        esac
+        verify_worktree_content "$expected" || return 1
     else
         if [ "$allow_missing" != yes ]; then
             block "workspace_ownership_unverifiable"
@@ -495,10 +619,7 @@ verify_workspace_for_archive() {
     fi
 
     workspace_agent_safety "$id" "$expected" || return 1
-    if ! local_branch_ancestry_merged; then
-        block "local_branch_commits_not_merged"
-        return 1
-    fi
+    require_local_branch_merged || return 1
     printf 'cleanup: workspace=present id=%s\n' "$id"
     return 0
 }
@@ -547,8 +668,29 @@ workspace_absent_step() {
 
 workspace_step() {
     local registered
-    registered="$(workflow_worktree_for_branch "$branch")"
-    local path=${worktree:-$registered}
+    local registration_status=0
+    local path
+    local registration
+    local detected
+    local detect_status
+    local workspace_status
+    local after_archive
+    local removal_status
+    local final_registration
+    local cwd
+    local normalized_worktree
+    local normalized_registered
+    if [ "$same_repository" != yes ]; then
+        printf 'cleanup: worktree=retained reason=external_fork\n'
+        printf 'cleanup: workspace=retained reason=external_fork\n'
+        return 0
+    fi
+    registered="$(workflow_worktree_for_branch "$branch")" || registration_status=$?
+    if [ "$registration_status" -ne 0 ]; then
+        block "worktree_query_failed"
+        return 0
+    fi
+    path=${worktree:-$registered}
 
     if [ "$local_branch_state" = present ] && [ "$local_branch_merged" != yes ]; then
         printf 'cleanup: worktree=retained reason=local_branch_commits_not_merged\n'
@@ -557,7 +699,9 @@ workspace_step() {
     fi
 
     if [ -n "$registered" ] && [ -n "$worktree" ]; then
-        if [ "$(normalize_path "$worktree")" != "$(normalize_path "$registered")" ]; then
+        normalized_worktree="$(normalize_path "$worktree")"
+        normalized_registered="$(normalize_path "$registered")"
+        if [ "$normalized_worktree" != "$normalized_registered" ]; then
             block "worktree_path_mismatch"
             return 0
         fi
@@ -607,62 +751,49 @@ workspace_step() {
         return 0
     fi
 
-    if [ -d "$path" ] && [ -n "$("$GIT_BIN" -C "$path" rev-parse --show-prefix 2>/dev/null)" ]; then
-        block "worktree_path_not_root"
-        return 0
-    fi
+    verify_worktree_identity "$path" worktree worktree_path_not_root || return 0
     path="$(normalize_path "$path")"
     printf 'cleanup: worktree=present path=%s\n' "$path"
-    local cwd
     cwd="$(normalize_path "$PWD")"
     if workflow_path_is_within "$path" "$cwd"; then
         block "cleanup_running_inside_target_worktree"
         return 0
     fi
 
-    if ! worktree_registered "$root" "$path"; then
-        printf 'cleanup: worktree=retained reason=not_a_registered_worktree\n'
-        if [ -n "$workspace_id" ]; then
-            block "worktree_not_registered"
-        fi
-        return 0
-    fi
-
-    local root_common worktree_common
-    if ! root_common="$(workflow_git_common_dir "$root")"; then
-        block "repository_identity_unverified"
-        return 0
-    fi
-    if ! worktree_common="$(workflow_git_common_dir "$path")"; then
-        block "worktree_repository_unverified"
-        return 0
-    fi
-    if [ "$root_common" != "$worktree_common" ]; then
-        block "worktree_repository_mismatch"
-        return 0
-    fi
-
-    local worktree_branch
-    if ! worktree_branch=$("$GIT_BIN" -C "$path" branch --show-current); then
-        block "worktree_branch_unreadable"
-        return 0
-    fi
-    if [ "$worktree_branch" != "$branch" ]; then
-        block "worktree_branch_mismatch"
-        return 0
-    fi
-
-    if ! workflow_worktree_status "$path" "$remove_build_output"; then
-        block "worktree_has_local_content"
-        return 0
-    fi
-
-    local detected=""
-    if command -v "$PASEO_BIN" >/dev/null 2>&1; then
-        if ! detected="$(workflow_paseo_workspace_id_for_cwd "$path")"; then
-            block "workspace_query_failed"
+    registration=0
+    worktree_registration_state "$path" || registration=$?
+    case "$registration" in
+        0) ;;
+        1)
+            printf 'cleanup: worktree=retained reason=not_a_registered_worktree\n'
+            if [ -n "$workspace_id" ]; then
+                block "worktree_not_registered"
+            fi
             return 0
-        fi
+            ;;
+        *)
+            block "worktree_registration_query_failed"
+            return 0
+            ;;
+    esac
+
+    verify_worktree_content "$path" || return 0
+
+    detected=""
+    detect_status=0
+    if command -v "$PASEO_BIN" >/dev/null 2>&1; then
+        detected="$(workflow_paseo_workspace_id_for_cwd "$path")" || detect_status=$?
+        case "$detect_status" in
+            0) ;;
+            3)
+                block "workspace_identity_ambiguous"
+                return 0
+                ;;
+            *)
+                block "workspace_query_failed"
+                return 0
+                ;;
+        esac
     fi
     if [ -n "$workspace_id" ] && [ -n "$detected" ] && [ "$detected" != "$workspace_id" ]; then
         block "workspace_id_mismatch"
@@ -672,7 +803,7 @@ workspace_step() {
         workspace_id=$detected
     fi
     if [ -n "$workspace_id" ]; then
-        local workspace_status=0
+        workspace_status=0
         workflow_paseo_workspace_exists "$workspace_id" || workspace_status=$?
         if [ "$workspace_status" -eq 1 ]; then
             printf 'cleanup: workspace=absent id=%s\n' "$workspace_id"
@@ -705,33 +836,50 @@ workspace_step() {
     if ! "$GIT_BIN" -C "$root" worktree prune >/dev/null 2>&1; then
         printf 'cleanup: warning=worktree_prune_failed\n'
     fi
-    if worktree_registered "$root" "$path"; then
-        if ! local_branch_ancestry_merged; then
-            block "local_branch_commits_not_merged"
-            return 0
-        fi
-        if [ -d "$path" ]; then
-            if ! workflow_worktree_status "$path" "$remove_build_output"; then
-                block "worktree_has_local_content"
+    after_archive=0
+    worktree_registration_state "$path" || after_archive=$?
+    case "$after_archive" in
+        1) ;;
+        0)
+            require_local_branch_merged || return 0
+            if [ -d "$path" ]; then
+                verify_worktree_content "$path" || return 0
+                if [ "$remove_build_output" = yes ]; then
+                    removal_status=0
+                    workflow_remove_reproducible_output "$path" || removal_status=$?
+                    if [ "$removal_status" -ne 0 ]; then
+                        block "worktree_output_removal_failed"
+                        return 0
+                    fi
+                fi
+            fi
+            if ! "$GIT_BIN" -C "$root" worktree remove "$path" >/dev/null 2>&1; then
+                block "worktree_remove_failed"
                 return 0
             fi
-            if [ "$remove_build_output" = yes ]; then
-                workflow_remove_reproducible_output "$path"
-            fi
-        fi
-        if ! "$GIT_BIN" -C "$root" worktree remove "$path" >/dev/null 2>&1; then
-            block "worktree_remove_failed"
+            ;;
+        *)
+            block "worktree_registration_query_failed"
             return 0
-        fi
-    fi
+            ;;
+    esac
     if ! "$GIT_BIN" -C "$root" worktree prune >/dev/null 2>&1; then
         printf 'cleanup: warning=worktree_prune_failed\n'
     fi
 
-    if worktree_registered "$root" "$path"; then
-        block "worktree_still_registered"
-        return 0
-    fi
+    final_registration=0
+    worktree_registration_state "$path" || final_registration=$?
+    case "$final_registration" in
+        0)
+            block "worktree_still_registered"
+            return 0
+            ;;
+        1) ;;
+        *)
+            block "worktree_registration_query_failed"
+            return 0
+            ;;
+    esac
     if [ -e "$path" ]; then
         printf 'cleanup: worktree=retained reason=directory_still_present\n'
         block "worktree_directory_still_present"
@@ -741,11 +889,34 @@ workspace_step() {
 }
 
 branch_step() {
-    if ! workflow_branch_exists "$root" "$branch"; then
-        printf 'cleanup: local_branch=absent\n'
+    local exists=0
+    local registered
+    local registration_status=0
+    local tip
+    local ancestry
+    workflow_branch_exists "$root" "$branch" || exists=$?
+    case "$exists" in
+        1)
+            printf 'cleanup: local_branch=absent\n'
+            return 0
+            ;;
+        0) ;;
+        *)
+            printf 'cleanup: local_branch=retained reason=query_failed\n'
+            block "local_branch_query_failed"
+            return 0
+            ;;
+    esac
+    if [ "$same_repository" != yes ]; then
+        printf 'cleanup: local_branch=retained reason=external_fork\n'
         return 0
     fi
-    if [ -n "$(workflow_worktree_for_branch "$branch")" ]; then
+    registered="$(workflow_worktree_for_branch "$branch")" || registration_status=$?
+    if [ "$registration_status" -ne 0 ]; then
+        block "worktree_query_failed"
+        return 0
+    fi
+    if [ -n "$registered" ]; then
         if [ "$MODE" = inspect ]; then
             printf 'cleanup: local_branch=delete_candidate_after_worktree_removal\n'
             return 0
@@ -754,17 +925,26 @@ branch_step() {
         block "local_branch_checked_out"
         return 0
     fi
-    local tip
     if ! tip=$("$GIT_BIN" -C "$root" rev-parse --verify "refs/heads/$branch^{commit}" 2>/dev/null); then
         printf 'cleanup: local_branch=retained reason=tip_unreadable\n'
         block "local_branch_tip_unreadable"
         return 0
     fi
-    if ! "$GIT_BIN" -C "$root" merge-base --is-ancestor "$tip" origin/main; then
-        printf 'cleanup: local_branch=retained reason=commits_not_merged\n'
-        block "local_branch_commits_not_merged"
-        return 0
-    fi
+    ancestry=0
+    "$GIT_BIN" -C "$root" merge-base --is-ancestor "$tip" origin/main || ancestry=$?
+    case "$ancestry" in
+        0) ;;
+        1)
+            printf 'cleanup: local_branch=retained reason=commits_not_merged\n'
+            block "local_branch_commits_not_merged"
+            return 0
+            ;;
+        *)
+            printf 'cleanup: local_branch=retained reason=ancestry_failed\n'
+            block "local_branch_ancestry_failed"
+            return 0
+            ;;
+    esac
     if [ "$MODE" = inspect ]; then
         printf 'cleanup: local_branch=delete_candidate\n'
         return 0
@@ -777,16 +957,26 @@ branch_step() {
         block "local_branch_delete_failed"
         return 0
     fi
-    if workflow_branch_exists "$root" "$branch"; then
-        block "local_branch_still_present"
-        return 0
-    fi
+    exists=0
+    workflow_branch_exists "$root" "$branch" || exists=$?
+    case "$exists" in
+        0)
+            block "local_branch_still_present"
+            return 0
+            ;;
+        1) ;;
+        *)
+            block "local_branch_query_failed"
+            return 0
+            ;;
+    esac
     printf 'cleanup: local_branch=deleted\n'
 }
 
 run() {
     root="$(workflow_repo_root)"
     cd "$root"
+    workflow_require_command jq
     local actual_repository
     actual_repository="$(workflow_verify_repository_identity "$root" "$repository")"
     repository=$actual_repository
@@ -796,10 +986,12 @@ run() {
         printf 'cleanup: result=blocked\n' >&2
         return 1
     fi
-    branch_preflight
-    if [ "$local_branch_state" = present ] && [ "$local_branch_merged" != yes ]; then
-        printf 'cleanup: worktree=retained reason=local_branch_commits_not_merged\n'
-        printf 'cleanup: workspace=retained reason=local_branch_commits_not_merged\n'
+    if [ "$same_repository" = yes ]; then
+        branch_preflight
+        if [ "$local_branch_state" = present ] && [ "$local_branch_merged" != yes ]; then
+            printf 'cleanup: worktree=retained reason=local_branch_commits_not_merged\n'
+            printf 'cleanup: workspace=retained reason=local_branch_commits_not_merged\n'
+        fi
     fi
     main_identity_preflight
     if [ "$blocked" -eq 1 ]; then

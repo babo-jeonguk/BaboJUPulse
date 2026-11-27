@@ -7,18 +7,27 @@ body:
     attributes:
       value: |
         Do not include credentials, tokens, account identifiers, local absolute paths, or references to local-only working artifacts. Redact logs before attaching them and keep the report self-contained.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and pull requests for this problem.
+          required: true
+        - label: I removed credentials, account data, and local-only paths from the report.
+          required: true
   - type: textarea
     id: current-behavior
     attributes:
       label: Current behavior
-      description: What happened?
+      description: What happened? Include the exact observed result.
     validations:
       required: true
   - type: textarea
     id: expected-behavior
     attributes:
       label: Expected behavior
-      description: What should have happened?
+      description: What should have happened instead?
     validations:
       required: true
   - type: textarea
@@ -46,11 +55,38 @@ body:
       placeholder: "e.g. Windows 11 24H2 (build 26100)"
     validations:
       required: true
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Is this a regression?
+      description: Did this work in an earlier version or commit?
+      options:
+        - Not sure
+        - "Yes, it worked before"
+        - "No, this is new behavior"
+      default: 0
+    validations:
+      required: true
+  - type: input
+    id: last-working
+    attributes:
+      label: Last known working version or commit
+      description: Fill this in if the problem is a regression.
+      placeholder: "e.g. 0.1.0 or a commit SHA"
+    validations:
+      required: false
   - type: textarea
     id: logs
     attributes:
-      label: Logs and diagnostics
-      description: Paste relevant output with secrets and account data removed.
+      label: Sanitized logs and diagnostics
+      description: Paste only the relevant output. Remove secrets, account identifiers, and local absolute paths.
       render: text
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Screenshots, related issues, or other information that helps reproduce the problem. Sanitize attachments first.
     validations:
       required: false

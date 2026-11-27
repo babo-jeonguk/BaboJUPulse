@@ -601,6 +601,13 @@ fi
 if [ -n "${STUB_DOTNET_DIRTY_ON:-}" ] && [ "$command" = "$STUB_DOTNET_DIRTY_ON" ]; then
     printf 'concurrent\n' > "${STUB_DOTNET_DIRTY_PATH:?}"
 fi
+if [ -n "${STUB_DOTNET_APPEND_ON:-}" ] && [ "$command" = "$STUB_DOTNET_APPEND_ON" ]; then
+    printf 'concurrent append\n' >> "${STUB_DOTNET_APPEND_PATH:?}"
+fi
+if [ -n "${STUB_DOTNET_STAGE_ON:-}" ] && [ "$command" = "$STUB_DOTNET_STAGE_ON" ]; then
+    printf 'concurrent staged append\n' >> "${STUB_DOTNET_APPEND_PATH:?}"
+    "${REAL_GIT:?}" -C "${STUB_DOTNET_REPO:?}" add "${STUB_DOTNET_STAGE_PATH:?}"
+fi
 if [ -n "${STUB_DOTNET_COMMIT_ON:-}" ] && [ "$command" = "$STUB_DOTNET_COMMIT_ON" ]; then
     "${REAL_GIT:?}" -C "${STUB_DOTNET_REPO:?}" commit -q --allow-empty -m "chore: concurrent"
 fi
@@ -645,6 +652,16 @@ dotnet_command_count() {
 
 dotnet_commands() {
     awk 'NF { if (seen++) printf " "; printf "%s", $1 } END { if (seen) printf "\n" }' "$dotnet_log"
+}
+
+output_value() {
+    sed -n "s/^validate: $1=//p" "$output" | tail -n 1
+}
+
+restage_slice_change() {
+    git -C "$slice_fixture" checkout -q HEAD -- file.txt
+    printf 'staged slice\n' >> "$slice_fixture/file.txt"
+    git -C "$slice_fixture" add file.txt
 }
 
 run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice
@@ -707,6 +724,119 @@ dotnet_sequence=$(dotnet_commands)
 assert_equals "restore" "$dotnet_sequence" \
     "validate slice failed restore does not run dependent commands"
 
+# --- Slice snapshot binding and checkpoint verification --------------------
+
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 0 "validate slice snapshot"
+assert_contains "validate: snapshot=staged" "validate slice snapshot"
+snapshot_head=$(output_value commit)
+snapshot_tree=$(output_value index_tree)
+current_head=$(git -C "$slice_fixture" rev-parse HEAD)
+expected_tree=$(git -C "$slice_fixture" write-tree)
+assert_equals "$current_head" "$snapshot_head" "validate slice snapshot starting HEAD"
+assert_equals "$expected_tree" "$snapshot_tree" "validate slice snapshot tree"
+
+printf 'unstaged\n' >> "$slice_fixture/file.txt"
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 1 "validate slice unstaged change"
+assert_contains "worktree to match the index" "validate slice unstaged change"
+assert_not_contains "validate: check=docs result=running" "validate slice unstaged change"
+git -C "$slice_fixture" checkout -q -- file.txt
+
+printf 'untracked\n' > "$slice_fixture/untracked.txt"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 1 "validate slice untracked file"
+assert_contains "no non-ignored untracked files" "validate slice untracked file"
+assert_not_contains "validate: check=docs result=running" "validate slice untracked file"
+rm -f "$slice_fixture/untracked.txt"
+
+printf 'bin/\n' >> "$slice_fixture/.git/info/exclude"
+mkdir -p "$slice_fixture/bin"
+printf 'generated\n' > "$slice_fixture/bin/generated.dll"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 0 "validate slice ignored output"
+assert_contains "validate: snapshot=staged" "validate slice ignored output"
+rm -rf "${slice_fixture:?}/bin"
+
+export STUB_DOTNET_APPEND_ON=build
+export STUB_DOTNET_APPEND_PATH="$slice_fixture/file.txt"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --csharp
+unset STUB_DOTNET_APPEND_ON STUB_DOTNET_APPEND_PATH
+assert_exit 3 "validate slice dirty-to-dirty unstaged change"
+assert_contains "validate: concurrent change detected" "validate slice dirty-to-dirty unstaged change"
+assert_contains "unstaged=yes" "validate slice dirty-to-dirty unstaged change"
+git -C "$slice_fixture" checkout -q -- file.txt
+
+export STUB_DOTNET_STAGE_ON=build
+export STUB_DOTNET_APPEND_PATH="$slice_fixture/file.txt"
+export STUB_DOTNET_STAGE_PATH=file.txt
+export STUB_DOTNET_REPO="$slice_fixture"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --csharp
+unset STUB_DOTNET_STAGE_ON STUB_DOTNET_APPEND_PATH STUB_DOTNET_STAGE_PATH STUB_DOTNET_REPO
+assert_exit 3 "validate slice staged change during run"
+assert_contains "validate: concurrent change detected" "validate slice staged change during run"
+restage_slice_change
+
+slice_before=$(git -C "$slice_fixture" rev-parse HEAD)
+export STUB_DOTNET_COMMIT_ON=test
+export STUB_DOTNET_REPO="$slice_fixture"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --csharp
+unset STUB_DOTNET_COMMIT_ON STUB_DOTNET_REPO
+assert_exit 3 "validate slice HEAD change during run"
+assert_contains "validate: concurrent change detected" "validate slice HEAD change during run"
+git -C "$slice_fixture" reset -q --hard "$slice_before"
+restage_slice_change
+
+export STUB_DOTNET_DIRTY_ON=test
+export STUB_DOTNET_DIRTY_PATH="$slice_fixture/concurrent.txt"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --csharp
+unset STUB_DOTNET_DIRTY_ON STUB_DOTNET_DIRTY_PATH
+assert_exit 3 "validate slice new untracked file during run"
+assert_contains "untracked=yes" "validate slice new untracked file during run"
+rm -f "$slice_fixture/concurrent.txt"
+
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 0 "validate slice checkpoint source"
+checkpoint_head=$(output_value commit)
+checkpoint_tree=$(output_value index_tree)
+git -C "$slice_fixture" commit -q -m "chore: complete slice fixture"
+
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" checkpoint \
+    --head "$checkpoint_head" --tree "$checkpoint_tree"
+assert_exit 0 "validate checkpoint"
+assert_contains "validate: checkpoint=verified" "validate checkpoint"
+assert_contains "validate: dirty=no" "validate checkpoint"
+
+parent_tree=$(git -C "$slice_fixture" rev-parse "$checkpoint_head^{tree}")
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" checkpoint \
+    --head "$checkpoint_head" --tree "$parent_tree"
+assert_exit 1 "validate checkpoint tree mismatch"
+assert_contains "does not match the validated snapshot" "validate checkpoint tree mismatch"
+
+dangling_head=$(git -C "$slice_fixture" commit-tree "$checkpoint_tree" -m "chore: dangling")
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" checkpoint \
+    --head "$dangling_head" --tree "$checkpoint_tree"
+assert_exit 1 "validate checkpoint lineage"
+assert_contains "not an ancestor of the checkpoint commit" "validate checkpoint lineage"
+
+printf 'checkpoint dirty\n' >> "$slice_fixture/file.txt"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" checkpoint \
+    --head "$checkpoint_head" --tree "$checkpoint_tree"
+assert_exit 1 "validate checkpoint dirty worktree"
+assert_contains "working tree is not clean" "validate checkpoint dirty worktree"
+git -C "$slice_fixture" checkout -q -- file.txt
+
+previous_commit=$(git -C "$slice_fixture" rev-parse HEAD~1)
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" checkpoint \
+    --head "$checkpoint_head" --tree "$checkpoint_tree" --commit "$previous_commit"
+assert_exit 1 "validate checkpoint non-head commit"
+assert_contains "must be the current HEAD" "validate checkpoint non-head commit"
+
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" checkpoint \
+    --tree "$checkpoint_tree"
+assert_exit 2 "validate checkpoint missing head"
+
 : > "$dotnet_log"
 run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" targeted --test --build --build
 assert_exit 0 "validate targeted reversed duplicated flags"
@@ -730,8 +860,6 @@ assert_exit 1 "validate full dirty tree"
 assert_contains "full validation requires a clean committed working tree" "validate full dirty tree"
 assert_not_contains "validate: check=restore result=running" "validate full dirty tree"
 git -C "$slice_fixture" checkout -q -- file.txt
-git -C "$slice_fixture" add file.txt
-git -C "$slice_fixture" commit -q -m "chore: complete slice fixture"
 
 : > "$dotnet_log"
 run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" full

@@ -115,12 +115,18 @@ check_workflow() {
 
 STATE_HEAD=""
 STATE_DIRTY=""
+STATE_TREE=""
 
 capture_state() {
     cd "$root"
     local head
     local dirty
     local status
+    local tree=""
+    local snapshot=""
+    local diff_status
+    local staged_status
+    local untracked
     if ! head=$("$GIT_BIN" rev-parse HEAD 2>/dev/null); then
         workflow_die "could not read HEAD" 1
     fi
@@ -132,15 +138,53 @@ capture_state() {
     else
         dirty=no
     fi
+
+    if [ "$MODE" = slice ]; then
+        if ! tree=$("$GIT_BIN" write-tree 2>/dev/null); then
+            workflow_die "could not read the staged snapshot" 1
+        fi
+        diff_status=0
+        "$GIT_BIN" diff --quiet -- 2>/dev/null || diff_status=$?
+        case "$diff_status" in
+            0) ;;
+            1)
+                workflow_die \
+                    "slice validation requires the worktree to match the index; stage the intended slice" 1
+                ;;
+            *)
+                workflow_die "could not compare the worktree with the index" 1
+                ;;
+        esac
+        if ! untracked=$("$GIT_BIN" ls-files --others --exclude-standard 2>/dev/null); then
+            workflow_die "could not list non-ignored untracked files" 1
+        fi
+        if [ -n "$untracked" ]; then
+            workflow_die \
+                "slice validation requires no non-ignored untracked files; stage or remove them" 1
+        fi
+        staged_status=0
+        "$GIT_BIN" diff --cached --quiet -- 2>/dev/null || staged_status=$?
+        case "$staged_status" in
+            0) snapshot=clean ;;
+            1) snapshot=staged ;;
+            *) workflow_die "could not read the staged snapshot" 1 ;;
+        esac
+    fi
+
     if [ "$MODE" = full ] && [ "$dirty" = yes ]; then
         workflow_die "full validation requires a clean committed working tree" 1
     fi
     STATE_HEAD=$head
     STATE_DIRTY=$dirty
+    STATE_TREE=$tree
     printf 'validate: repository=%s\n' "$root"
     printf 'validate: commit=%s\n' "$head"
     printf 'validate: dirty=%s\n' "$dirty"
     printf 'validate: mode=%s\n' "$MODE"
+    if [ "$MODE" = slice ]; then
+        printf 'validate: index_tree=%s\n' "$tree"
+        printf 'validate: snapshot=%s\n' "$snapshot"
+    fi
 }
 
 state_unchanged() {
@@ -166,6 +210,51 @@ state_unchanged() {
         printf 'validate: concurrent change detected; repeat validation on the current commit\n' >&2
         printf 'validate: expected_commit=%s expected_dirty=%s actual_commit=%s actual_dirty=%s\n' \
             "$expected_head" "$expected_dirty" "$head" "$dirty" >&2
+        return 1
+    fi
+    return 0
+}
+
+slice_state_unchanged() {
+    local expected_head=$1
+    local expected_tree=$2
+    local head
+    local tree
+    local diff_status
+    local untracked
+    if ! head=$("$GIT_BIN" rev-parse HEAD 2>/dev/null); then
+        printf 'validate: could not read HEAD after the checks\n' >&2
+        return 1
+    fi
+    if ! tree=$("$GIT_BIN" write-tree 2>/dev/null); then
+        printf 'validate: could not read the staged snapshot after the checks\n' >&2
+        return 1
+    fi
+    diff_status=0
+    "$GIT_BIN" diff --quiet -- 2>/dev/null || diff_status=$?
+    if [ "$diff_status" -gt 1 ]; then
+        printf 'validate: could not compare the worktree with the index after the checks\n' >&2
+        return 1
+    fi
+    if ! untracked=$("$GIT_BIN" ls-files --others --exclude-standard 2>/dev/null); then
+        printf 'validate: could not list untracked files after the checks\n' >&2
+        return 1
+    fi
+    if [ "$head" != "$expected_head" ] \
+        || [ "$tree" != "$expected_tree" ] \
+        || [ "$diff_status" -ne 0 ] \
+        || [ -n "$untracked" ]; then
+        local unstaged=no
+        local untracked_state=no
+        if [ "$diff_status" -ne 0 ]; then
+            unstaged=yes
+        fi
+        if [ -n "$untracked" ]; then
+            untracked_state=yes
+        fi
+        printf 'validate: concurrent change detected; repeat validation on the current snapshot\n' >&2
+        printf 'validate: expected_commit=%s expected_tree=%s actual_commit=%s actual_tree=%s unstaged=%s untracked=%s\n' \
+            "$expected_head" "$expected_tree" "$head" "$tree" "$unstaged" "$untracked_state" >&2
         return 1
     fi
     return 0
@@ -226,7 +315,11 @@ run_checks() {
         esac
     done
 
-    if ! state_unchanged "$head" "$dirty"; then
+    if [ "$MODE" = slice ]; then
+        if ! slice_state_unchanged "$head" "$STATE_TREE"; then
+            exit 3
+        fi
+    elif ! state_unchanged "$head" "$dirty"; then
         exit 3
     fi
 

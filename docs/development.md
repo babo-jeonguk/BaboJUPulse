@@ -67,7 +67,7 @@ bash scripts/check-documentation.sh
 
 The checker validates relative links, heading fragments, Git-ignored targets, local absolute paths, table shape, fenced-code closure, and the public-content policy. The repository-policy test invokes the same script, so there is one implementation of the rules. Policy and limitations are in [Quality gates](agents/quality-gates.md#documentation-validation).
 
-The separate [documentation workflow](../.github/workflows/docs.yml) runs the same checks on every pull request and push. It is not a branch-protection required check; the existing `build` workflow remains required and still runs on documentation-only commits.
+The separate [documentation workflow](../.github/workflows/docs.yml) runs the same checks on every pull request and push to `main`. It is not a branch-protection required check; the existing `build` workflow remains required and still runs on documentation-only commits.
 
 ## Tests
 

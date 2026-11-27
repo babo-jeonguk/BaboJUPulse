@@ -42,18 +42,24 @@ documents() {
         done
 }
 
-sanitize_document() {
+sanitize_fences() {
     awk '
         { sub(/\r$/, "") }
         /^[[:space:]]*(```|~~~)/ { in_fence = !in_fence; print ""; next }
         in_fence { print ""; next }
+        { print }
+    ' "$1"
+}
+
+sanitize_document() {
+    sanitize_fences "$1" | awk '
         {
             line = $0
             gsub(/`[^`]*`/, "", line)
             gsub(/<!--.*-->/, "", line)
             print line
         }
-    ' "$1"
+    '
 }
 
 links_in_document() {
@@ -110,7 +116,7 @@ anchors_in_document() {
 }
 
 table_errors() {
-    awk '
+    sanitize_fences "$1" | awk '
         { lines[NR] = $0 }
         function cells(value,    count) {
             gsub(/\\\|/, "", value)
@@ -121,12 +127,18 @@ table_errors() {
         }
         END {
             for (i = 2; i <= NR; i++) {
+                if (lines[i] ~ /^[ \t]{4,}/) {
+                    continue
+                }
                 if (lines[i] !~ /^[ \t]*\|?[ \t]*:?-+:?[ \t]*(\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*$/) {
                     continue
                 }
                 expected = cells(lines[i - 1])
                 j = i + 1
                 while (j <= NR && lines[j] ~ /\|/ && lines[j] !~ /^[ \t]*$/) {
+                    if (lines[j] ~ /^[ \t]{4,}/) {
+                        break
+                    }
                     actual = cells(lines[j])
                     if (actual != expected) {
                         print j "\t" expected "\t" actual
@@ -135,7 +147,7 @@ table_errors() {
                 }
             }
         }
-    ' "$1"
+    '
 }
 
 fence_errors() {
@@ -317,11 +329,11 @@ main() {
     bash "$root/scripts/check-public-content.sh" --files "${docs[@]}"
     code=$?
     set -e
-    if [ "$code" -eq 2 ]; then
-        exit 2
-    fi
     if [ "$code" -eq 1 ]; then
         result=1
+    elif [ "$code" -ne 0 ]; then
+        echo "documentation: public-content validation could not complete" >&2
+        exit 2
     fi
 
     if [ "$rule_failed" -eq 1 ]; then

@@ -4,7 +4,7 @@ Authoritative for verification, static-analysis enforcement, suppression approva
 
 ## Required gates
 
-The required CI workflow is [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). It runs on `windows-latest` and is the required `build` check. A separate [documentation workflow](../../.github/workflows/docs.yml) runs lightweight documentation validation on every pull request and push; it is not a branch-protection required check by default.
+The required CI workflow is [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). It runs on `windows-latest` and is the required `build` check. A separate [documentation workflow](../../.github/workflows/docs.yml) runs lightweight documentation validation on every pull request and push to `main`; it is not a branch-protection required check by default.
 
 | Gate | Enforces |
 | --- | --- |
@@ -18,7 +18,7 @@ The required CI workflow is [`.github/workflows/ci.yml`](../../.github/workflows
 | CodeQL | C# security analysis; advisory, not required |
 | Dependency review | New dependency vulnerabilities and licenses; advisory, not required |
 
-The exact quality-gate commands are in [Development](../development.md#quality-gates); the repository-policy, documentation, and public-content commands are in [Development tests](../development.md#tests). Do not duplicate them in new documents.
+The exact quality-gate commands are in [Development](../development.md#quality-gates); the repository-policy and public-content commands are in [Development tests](../development.md#tests); the documentation commands are in [Development documentation validation](../development.md#documentation-validation). Do not duplicate them in new documents.
 
 ## Enforcement coverage
 
@@ -118,7 +118,7 @@ The checker validates:
 - Fenced code blocks are closed.
 - Documentation files satisfy the public-content policy, using the existing checker rather than a second pattern set.
 
-The [documentation workflow](../../.github/workflows/docs.yml) runs the checker, its synthetic tests, and the public-content tests on every pull request and push. It has no `paths` or `paths-ignore` filter, so it cannot be skipped into a permanently pending state. The existing `build` workflow remains the only branch-protection required check; the merge procedure requires the documentation result on the final head. Adding the documentation job to branch protection, or removing the required `build` coverage, needs explicit maintainer authorization.
+The [documentation workflow](../../.github/workflows/docs.yml) runs the checker, its synthetic tests, and the public-content tests on every pull request and push to `main`. It has no `paths` or `paths-ignore` filter, so it cannot be skipped into a permanently pending state. The existing `build` workflow remains the only branch-protection required check; the merge procedure requires the documentation result on the final head. Adding the documentation job to branch protection, or removing the required `build` coverage, needs explicit maintainer authorization.
 
 A documentation-only commit after review does not change CI scope. It still triggers the full required `build` check and the documentation workflow. The narrow review exception in [Code review](code-review.md#7-documentation-only-follow-up-after-approval) changes review effort, not the validation that must pass on the final head.
 
@@ -172,6 +172,8 @@ A repository-controlled guard is **not tamper-proof**. An agent with permission 
 - CodeQL and dependency review are advisory; only `build` is required by branch protection.
 - The `documentation` workflow is not a branch-protection required check. The merge procedure requires its result, but a repository setting change would be needed to enforce it server-side.
 - The documentation checker does not validate external link reachability, Mermaid rendering, or general Markdown formatting style. It validates repository structure and the checks listed above.
+- The checker resolves inline links and images. Reference-style link definitions are not currently resolved; prefer inline links or verify them manually.
+- Prose local-path detection relies on the public-content checker's supported patterns. Link targets are rejected separately.
 - The local commit hook is bypassable and does not apply to contributors who did not run setup.
 - Architecture dependency tests and provider-boundary tests are deferred until separate assemblies or namespaces exist. See [ADR-0002](../adr/0002-static-analysis-and-architecture-enforcement.md).
 - The null-forgiving check rejects the operator; it does not prove that every other nullable annotation or nullability contract is honest.

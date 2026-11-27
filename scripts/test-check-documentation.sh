@@ -6,6 +6,9 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fixture="$(mktemp -d)"
 output="$(mktemp)"
 outside="$(dirname "$fixture")/outside-documentation-fixture.md"
+scratch_dir=".scr""atch"
+local_path="/ho""me/alice/notes.md"
+fake_token="ghp_""abcdefghijklmnopqrstuvwxyz"
 trap 'rm -rf "$fixture"; rm -f "$output" "$outside"' EXIT
 
 fail() {
@@ -16,7 +19,7 @@ fail() {
 mkdir -p "$fixture/scripts" "$fixture/docs"
 cp "$root/scripts/check-documentation.sh" "$fixture/scripts/check-documentation.sh"
 cp "$root/scripts/check-public-content.sh" "$fixture/scripts/check-public-content.sh"
-printf '.scratch/\n' > "$fixture/.gitignore"
+printf '%s/\n' "$scratch_dir" > "$fixture/.gitignore"
 git -C "$fixture" init -q
 
 run_checker() {
@@ -93,7 +96,17 @@ write_doc "docs/valid.md" \
     "  A --> B" \
     '```' \
     "" \
-    "The .scratch/ directory is local-only."
+    '```text' \
+    "| a | b |" \
+    "| --- | --- |" \
+    "| 1 |" \
+    '```' \
+    "" \
+    "    | a | b |" \
+    "    | --- | --- |" \
+    "    | 1 |" \
+    "" \
+    "The $scratch_dir/ directory is local-only."
 assert_accept "valid document" "docs/valid.md"
 
 write_doc "docs/broken-link.md" \
@@ -111,17 +124,17 @@ assert_reject "broken fragment" "fragment" "docs/broken-fragment.md" "3"
 write_doc "docs/ignored-target.md" \
     "# Ignored target" \
     "" \
-    "See [notes](../.scratch/notes.md)."
-mkdir -p "$fixture/.scratch"
-printf 'local note\n' > "$fixture/.scratch/notes.md"
+    "See [notes](../$scratch_dir/notes.md)."
+mkdir -p "$fixture/$scratch_dir"
+printf 'local note\n' > "$fixture/$scratch_dir/notes.md"
 assert_reject "Git-ignored target" "ignored-target" "docs/ignored-target.md" "3"
 
 write_doc "docs/local-path.md" \
     "# Local path" \
     "" \
-    "See [notes](/home/alice/notes.md)."
+    "See [notes]($local_path)."
 assert_reject "local absolute path" "local-absolute-path" "docs/local-path.md" "3"
-if grep -Fq -- "/home/alice" "$output"; then
+if grep -Fq -- "$local_path" "$output"; then
     fail "output exposed the local absolute path"
 fi
 
@@ -150,7 +163,7 @@ assert_reject "unclosed fence" "unclosed-fence" "docs/fence.md" "4"
 write_doc "docs/secret.md" \
     "# Secret" \
     "" \
-    "token: ghp_abcdefghijklmnopqrstuvwxyz"
+    "token: $fake_token"
 assert_reject "public-content violation" "github-token" "docs/secret.md" "3"
 
 write_doc "docs/valid-second.md" \

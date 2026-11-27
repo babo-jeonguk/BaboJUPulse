@@ -37,7 +37,7 @@ Authoritative for repository operations and external publication. It does not de
 - PR preparation, template use, evidence, and CI verification are owned by [Pull request](pull-request.md). Merge preconditions, documentation freshness, and cleanup are owned by [PR merge](pr-merge.md).
 - Keep the body self-contained: linked issue, smallest-sufficient Summary, acceptance-criteria coverage, exact reviewed implementation commit, final head, any documentation-only delta, review outcome, actual verification, unverified behavior, documentation review, and Merge Danger. Do not fabricate a result for a check that did not run.
 - The required status check is `build` on `windows-latest`. It runs restore/audit, formatting, build, tests, repository-policy checks, and public-content checks. The `pull_request` trigger includes `edited`, so a title or body edit is revalidated by CI.
-- The separate `documentation` workflow runs lightweight documentation validation on every pull request and push. It is not a branch-protection required check; the merge procedure requires its result on the final head. Do not add path filters that could leave a required check pending.
+- The separate `documentation` workflow runs lightweight documentation validation on every pull request and push to `main`. It is not a branch-protection required check; the merge procedure requires its result on the final head. Do not add path filters that could leave a required check pending.
 - CodeQL and dependency review are advisory checks, not required by branch protection.
 - Merge with a merge commit. Squash and rebase merges are disabled; head branches are deleted after merge. Auto-merge is enabled. Use `gh pr merge --match-head-commit <final-head-sha>` so the verified head cannot change silently before the merge.
 - Required approvals are `0` because the repository has one maintainer. Administrators are subject to branch protection.
@@ -98,7 +98,7 @@ Do not publish:
 ## GitHub enforcement and limits
 
 - `main` requires a pull request, the `build` check, an up-to-date branch, and resolved conversations. Force pushes and deletions are blocked; administrators are included.
-- The separate `documentation` workflow runs on every pull request and push but is not required by branch protection until the maintainer changes that setting. The merge procedure still requires its final-head result.
+- The separate `documentation` workflow runs on every pull request and push to `main` but is not required by branch protection until the maintainer changes that setting. The merge procedure still requires its final-head result.
 - Secret scanning and push protection are enabled. Dependabot alerts and security updates are enabled. Private vulnerability reporting is enabled through [SECURITY.md](../../SECURITY.md).
 - Secret scanning non-provider patterns and validity checks are unavailable on the current plan.
 - The default Actions token is read-only. All Actions are allowed, and commit-SHA pinning is not enforced; workflows use major version tags and Dependabot updates them weekly.

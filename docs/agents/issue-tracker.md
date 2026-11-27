@@ -86,7 +86,6 @@ A maintainer or an explicitly delegated triage agent:
 4. Removes `needs-triage`.
 5. Applies `ready-for-agent` when the issue is fully specified for implementation by an agent, or `ready-for-human` when it needs human judgment or manual work.
 6. Leaves the issue in `needs-info` or `blocked` when it is not ready.
-7. Removes the readiness label when implementation starts or the issue is closed, because it no longer describes the current state.
 
 Readiness requires all of the following:
 
@@ -107,7 +106,7 @@ An implementation-specification form that is filled in but has unresolved questi
 - Add evidence and decisions as comments; keep the specification in the body current.
 - Use native issue dependencies or a `Blocked by: #<n>` line when a dependency is unresolved.
 - When scope changes, update acceptance criteria through the maintainer decision process, not silently in the implementation.
-- Remove `ready-for-agent` or `ready-for-human` when implementation starts or the issue closes. A readiness label must not remain on a closed issue.
+- Remove `ready-for-agent` or `ready-for-human` when implementation starts with a linked PR, when the scope changes, or when the issue closes. A readiness label must not remain on a closed issue.
 - Close when the work is complete, rejected, duplicated, or no longer relevant.
 
 ## Lifecycle handling

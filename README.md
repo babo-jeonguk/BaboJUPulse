@@ -66,7 +66,7 @@ bash scripts/test-check-documentation.sh
 bash scripts/check-documentation.sh
 ```
 
-It validates relative links, heading fragments, Git-ignored and local-only targets, table shape, fenced-code closure, and the public-content policy. The separate `documentation` workflow runs the same checks on every pull request and push; the required `build` check remains mandatory on the final head.
+It validates relative links, heading fragments, Git-ignored and local-only targets, table shape, fenced-code closure, and the public-content policy. The separate `documentation` workflow runs the same checks on every pull request and push to `main`; the required `build` check remains mandatory on the final head.
 
 Suppression approval, gate integrity, and known limitations are in [Quality gates](docs/agents/quality-gates.md); the tool decisions are in [ADR-0002](docs/adr/0002-static-analysis-and-architecture-enforcement.md).
 

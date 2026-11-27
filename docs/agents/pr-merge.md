@@ -222,8 +222,12 @@ After the operation, verify the actual result:
 ```bash
 paseo workspace ls --json
 git worktree list --porcelain
-test -d "<worktree>" || true
+if [ -d "<worktree>" ]; then
+    echo "worktree still present; inspect it or remove it manually"
+fi
 ```
+
+If the directory is still present after archiving, inspect it before deciding whether to remove it manually. A retained directory is not automatically a failure; uncommitted or local-only content is a reason to retain it.
 
 If cleanup cannot be completed safely, retain the workspace and the worktree and report the reason. Do not delete a worktree with uncommitted changes or meaningful local artifacts.
 

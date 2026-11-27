@@ -146,34 +146,90 @@ workflow_branch_exists() {
 workflow_remote_branch_sha() {
     local root=$1
     local branch=$2
-    "$GIT_BIN" -C "$root" ls-remote --heads origin "refs/heads/$branch" \
-        | awk '{ print $1; exit }'
+    local output
+    if ! output=$("$GIT_BIN" -C "$root" ls-remote --heads origin "refs/heads/$branch" 2>/dev/null); then
+        return 2
+    fi
+    printf '%s\n' "$output" | awk '{ print $1; exit }'
+}
+
+workflow_normalize_path() {
+    local path=$1
+    if [ ! -d "$path" ]; then
+        printf '%s' "$path"
+        return 0
+    fi
+    if (cd "$path" && "$GIT_BIN" rev-parse --show-toplevel >/dev/null 2>&1); then
+        (cd "$path" && "$GIT_BIN" rev-parse --show-toplevel)
+    else
+        (cd "$path" && pwd -P)
+    fi
+}
+
+workflow_reproducible_output() {
+    case "$1" in
+        bin|bin/*|*/bin|*/bin/*) return 0 ;;
+        obj|obj/*|*/obj|*/obj/*) return 0 ;;
+        TestResults|TestResults/*|*/TestResults|*/TestResults/*) return 0 ;;
+        artifacts|artifacts/*|*/artifacts|*/artifacts/*) return 0 ;;
+        publish|publish/*|*/publish|*/publish/*) return 0 ;;
+        *.binlog) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 workflow_worktree_status() {
     local path=$1
     local tracked
-    local ignored
+    local line
+    local entry
     tracked=$("$GIT_BIN" -C "$path" status --porcelain --untracked-files=all)
-    ignored=$("$GIT_BIN" -C "$path" status --ignored --short)
-    if [ -n "$tracked" ] || [ -n "$ignored" ]; then
+    if [ -n "$tracked" ]; then
         return 1
     fi
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        entry=${line#?? }
+        if ! workflow_reproducible_output "$entry"; then
+            return 1
+        fi
+    done < <("$GIT_BIN" -C "$path" status --ignored --short --untracked-files=all)
     return 0
+}
+
+workflow_remove_reproducible_output() {
+    local path=$1
+    local line
+    local entry
+    local target
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        entry=${line#?? }
+        workflow_reproducible_output "$entry" || continue
+        target="$path/$entry"
+        if [ "$target" = "$path" ] || ! workflow_path_is_within "$path" "$target"; then
+            continue
+        fi
+        rm -rf -- "$target"
+    done < <("$GIT_BIN" -C "$path" status --ignored --short --untracked-files=all)
 }
 
 workflow_paseo_workspace_id_for_cwd() {
     local cwd=$1
-    "$PASEO_BIN" workspace ls --json 2>/dev/null | awk -v wanted="$cwd" '
-        /"workspaceId":/ {
+    local output
+    if ! output=$("$PASEO_BIN" workspace ls --json 2>/dev/null); then
+        return 2
+    fi
+    printf '%s\n' "$output" | awk -v wanted="$cwd" '
+        /"workspaceId"/ {
             value = $0
-            sub(/.*"workspaceId": *"/, "", value)
+            sub(/.*"workspaceId"[[:space:]]*:[[:space:]]*"/, "", value)
             sub(/".*/, "", value)
             id = value
         }
-        /"cwd":/ {
+        /"cwd"/ {
             value = $0
-            sub(/.*"cwd": *"/, "", value)
+            sub(/.*"cwd"[[:space:]]*:[[:space:]]*"/, "", value)
             sub(/".*/, "", value)
             if (value == wanted && id != "") {
                 print id
@@ -185,7 +241,11 @@ workflow_paseo_workspace_id_for_cwd() {
 
 workflow_paseo_workspace_exists() {
     local id=$1
-    "$PASEO_BIN" workspace ls --json 2>/dev/null | grep -Fq "\"workspaceId\": \"$id\""
+    local output
+    if ! output=$("$PASEO_BIN" workspace ls --json 2>/dev/null); then
+        return 2
+    fi
+    printf '%s\n' "$output" | grep -Eq "\"workspaceId\"[[:space:]]*:[[:space:]]*\"$id\""
 }
 
 workflow_path_is_within() {

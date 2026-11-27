@@ -92,6 +92,6 @@ When escalation is required, provide the finding, the evidence, the attempted co
 - [Review report template](templates/review-report.md) for finding identifiers and the re-review record.
 - [Implementation](implementation.md) for the implementation rules that still apply.
 - [Quality gates](quality-gates.md) for suppressions, gate changes, and verification.
-- [Development](development-workflow.md) for stage transitions and escalation.
+- [Development workflow](development-workflow.md) for stage transitions and escalation.
 - [Development](../development.md#workflow-scripts) for validation entry points.
 - [Pull request](pull-request.md) for the next stage after convergence.

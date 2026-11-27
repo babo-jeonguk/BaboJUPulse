@@ -37,7 +37,7 @@ A user-chosen display name for an **Account**. It is a label, not an identity or
 _Avoid_: nickname, display name, username
 
 **Quota**:
-The amount of subscription capacity that a **Provider** makes available to an **Account** within a **Quota Window**, in the units that provider defines.
+The subscription capacity that a **Provider** makes available to an **Account**, in the units that provider defines. Where the provider reports a **Quota Window**, quota is associated with that window.
 _Avoid_: credits, balance, limit, usage
 
 **Quota Window**:

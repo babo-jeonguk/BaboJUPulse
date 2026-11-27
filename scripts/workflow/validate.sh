@@ -38,15 +38,18 @@ run_check() {
     local name=$1
     shift
     printf 'validate: check=%s result=running\n' "$name"
-    if "$@"; then
+    local code=0
+    set +e
+    ( set -e; "$@" )
+    code=$?
+    set -e
+    if [ "$code" -eq 0 ]; then
         printf 'validate: check=%s result=pass\n' "$name"
         return 0
-    else
-        local code=$?
-        printf 'validate: check=%s result=fail exit=%s\n' "$name" "$code"
-        failed=1
-        return 0
     fi
+    printf 'validate: check=%s result=fail exit=%s\n' "$name" "$code"
+    failed=1
+    return 0
 }
 
 check_restore() {
@@ -74,22 +77,24 @@ check_policy() {
 }
 
 check_docs() {
-    bash scripts/test-check-documentation.sh
-    bash scripts/check-documentation.sh
+    bash scripts/test-check-documentation.sh \
+        && bash scripts/check-documentation.sh
 }
 
 check_public_content() {
-    bash scripts/test-public-content.sh
-    bash scripts/check-public-content.sh --tracked
+    bash scripts/test-public-content.sh \
+        && bash scripts/check-public-content.sh --tracked
 }
 
 check_workflow() {
     bash scripts/test-workflow.sh
 }
 
-print_state() {
+STATE_HEAD=""
+STATE_DIRTY=""
+
+capture_state() {
     cd "$root"
-    DOTNET_BIN="${DOTNET_BIN:-dotnet}"
     local head
     local dirty
     head=$("$GIT_BIN" rev-parse HEAD)
@@ -98,12 +103,12 @@ print_state() {
     else
         dirty=no
     fi
+    STATE_HEAD=$head
+    STATE_DIRTY=$dirty
     printf 'validate: repository=%s\n' "$root"
     printf 'validate: commit=%s\n' "$head"
     printf 'validate: dirty=%s\n' "$dirty"
     printf 'validate: mode=%s\n' "$MODE"
-    printf 'validate: state_head=%s\n' "$head"
-    printf 'validate: state_dirty=%s\n' "$dirty"
 }
 
 state_unchanged() {
@@ -127,12 +132,10 @@ state_unchanged() {
 }
 
 run_checks() {
-    local state
-    state="$(print_state)"
-    local head
-    local dirty
-    head="$(printf '%s\n' "$state" | sed -n 's/^validate: state_head=//p')"
-    dirty="$(printf '%s\n' "$state" | sed -n 's/^validate: state_dirty=//p')"
+    cd "$root"
+    capture_state
+    local head=$STATE_HEAD
+    local dirty=$STATE_DIRTY
 
     local check
     for check in "$@"; do

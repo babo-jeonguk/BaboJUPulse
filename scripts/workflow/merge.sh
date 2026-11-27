@@ -12,7 +12,8 @@
 #
 # Options:
 #   --repository <owner/name>  Require this GitHub repository.
-#   --require-check <name>     Required check name (repeatable; default: build).
+#   --require-check <name>     Add a required check name (repeatable; the default
+#                              set is build and documentation).
 #   --delete-branch            Also request branch deletion. Prefer cleanup.sh,
 #                              which verifies merge ancestry first.
 #
@@ -24,14 +25,14 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 source "$script_dir/common.sh"
 
 usage() {
-    sed -n '2,20p' "${BASH_SOURCE[0]}"
+    sed -n '2,19p' "${BASH_SOURCE[0]}"
 }
 
 pr=""
 verified_sha=""
 repository=""
 delete_branch=no
-require_checks=(build)
+require_checks=(build documentation)
 
 parse_args() {
     while [ "$#" -gt 0 ]; do
@@ -61,11 +62,11 @@ evaluate() {
     local record
     record=$("$GH_BIN" pr view "$pr" \
         --json number,state,isDraft,baseRefName,headRefOid,headRefName,headRepositoryOwner,headRepository,mergeable,mergeStateStatus,url \
-        --jq '[.number, .state, .isDraft, .baseRefName, .headRefOid, .headRefName, (.headRepositoryOwner.login // ""), (.headRepository.name // ""), (.mergeable // ""), (.mergeStateStatus // ""), (.url // "")] | @tsv' 2>/dev/null) \
+        --jq '[.number, .state, .isDraft, .baseRefName, .headRefOid, .headRefName, (.headRepositoryOwner.login // ""), (.headRepository.name // ""), (.mergeable // ""), (.mergeStateStatus // ""), (.url // "")] | join("\u001f")' 2>/dev/null) \
         || workflow_die "could not read pull request #$pr" 1
 
     local number state is_draft base_ref head_sha head_ref head_owner head_repo mergeable merge_state url
-    IFS=$'\t' read -r number state is_draft base_ref head_sha head_ref head_owner head_repo mergeable merge_state url <<< "$record"
+    IFS=$'\x1f' read -r number state is_draft base_ref head_sha head_ref head_owner head_repo mergeable merge_state url <<< "$record"
 
     printf 'merge: repository=%s\n' "$actual_repository"
     printf 'merge: pr=%s state=%s draft=%s url=%s\n' "$number" "$state" "$is_draft" "$url"
@@ -112,7 +113,7 @@ evaluate() {
     local checks_code=0
     set +e
     checks_output=$("$GH_BIN" pr checks "$pr" --json name,state,bucket \
-        --jq '.[] | [.name, .state, .bucket] | @tsv' 2>/dev/null)
+        --jq '.[] | [.name, .state, .bucket] | join("\u001f")' 2>/dev/null)
     checks_code=$?
     set -e
     if [ "$checks_code" -ne 0 ] && [ "$checks_code" -ne 8 ]; then
@@ -127,7 +128,7 @@ evaluate() {
         local passed=0
         local check_state
         local check_bucket
-        while IFS=$'\t' read -r check_name check_state check_bucket; do
+        while IFS=$'\x1f' read -r check_name check_state check_bucket; do
             [ -n "$check_name" ] || continue
             if [ "$check_name" = "$check" ]; then
                 matched=1

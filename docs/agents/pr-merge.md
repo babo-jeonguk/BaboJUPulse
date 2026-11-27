@@ -40,8 +40,7 @@ Start with the explicit verified SHA from the review record. Do not fetch a new 
 scripts/workflow/validate.sh range --base <base-sha> --head <final-head-sha>
 scripts/workflow/merge.sh inspect \
   --pr <number> \
-  --verified-sha <final-head-sha> \
-  --require-check documentation
+  --verified-sha <final-head-sha>
 ```
 
 `validate.sh range` refreshes `origin`, verifies both commits and their ancestry, and prints the commit count and diffstat. `merge.sh inspect` is read-only: it checks the PR state, base, draft state, current head, mergeability, and the required checks against the supplied SHA. It never replaces the supplied SHA with a freshly fetched value.
@@ -70,7 +69,7 @@ If `merge.sh inspect` reports a head mismatch, stop. The current PR head is not 
 
 ### 2. Inspect checks and security signals
 
-- `merge.sh inspect` confirms the required checks named with `--require-check`. The branch-protection required check is `build`; the merge procedure also requires the `documentation` workflow result, so pass `--require-check documentation` unless the maintainer records a different decision.
+- `merge.sh inspect` confirms the required checks. The default set is `build` and `documentation`; add `--require-check <name>` only when another check is required. The branch-protection required check is `build`, and the merge procedure also requires the `documentation` workflow result.
 - A documentation-only commit does not make the pull request documentation-only for CI purposes; the full build still runs.
 - If the `documentation` workflow did not run, record a local `scripts/workflow/validate.sh docs` result and the reason. Do not add path filters to make it disappear, and do not treat an earlier run on another commit as evidence for the final head.
 - Inspect CodeQL and dependency-review results when relevant. They are advisory unless the maintainer says otherwise, but a new security finding needs a decision before merge.
@@ -128,13 +127,11 @@ The verified SHA must come from the review and verification record, not from a v
 ```bash
 scripts/workflow/merge.sh inspect \
   --pr <number> \
-  --verified-sha <verified-final-sha> \
-  --require-check documentation
+  --verified-sha <verified-final-sha>
 
 scripts/workflow/merge.sh execute \
   --pr <number> \
-  --verified-sha <verified-final-sha> \
-  --require-check documentation
+  --verified-sha <verified-final-sha>
 ```
 
 Do not replace the expected SHA with a newly fetched value when the inspection reports a mismatch. A merge command that fetches the head immediately before merging can adopt a commit that the existing review never covered; that is the gap this procedure closes. If the head changed, return to [Code review](code-review.md) and the verification in this document before attempting another merge.
@@ -179,11 +176,11 @@ Then execute the same inputs without `inspect` when the reported state is safe. 
 
 The script verifies and performs these steps:
 
-1. The PR is merged, its merge commit is on `origin/main`, and the reviewed head is included in merged history. A successful PR state alone is not proof of content.
+1. The PR is merged, its merge commit is on `origin/main`, and the supplied verified head, when provided, is included in merged history. A successful PR state alone is not proof of content.
 2. The remote branch exists only for this repository, its fetched tip is contained in `origin/main`, and no concurrent update has replaced it. It deletes with a lease on the inspected tip. It never deletes a fork branch, an unrelated branch, or a branch with unmerged commits.
 3. Local `main` is clean and is an ancestor of `origin/main`, then fast-forwards with `--ff-only`. It never resets, stashes, or overwrites local work.
-4. The issue worktree has no tracked, untracked, or ignored content that would be lost, and the script is not running inside it. It archives the Paseo workspace through Paseo, verifies the archive, removes the Git worktree when it is still registered, prunes stale registrations, and verifies the directory state.
-5. The merged local branch is not checked out elsewhere and is contained in `origin/main`. It deletes with `git branch -d`, never `-D`.
+4. The issue worktree is on the PR head branch, has no tracked or untracked content that would be lost, and has no ignored content other than known reproducible build output (`bin`, `obj`, `TestResults`, `artifacts`, `publish`, and `.binlog` files). It refuses a mismatched branch or another worktree, and the script is not running inside the target. It archives the Paseo workspace through Paseo, verifies the archive, removes known build output, removes the Git worktree when it is still registered, prunes stale registrations, and verifies the directory state.
+5. The merged local branch is not checked out elsewhere and is contained in `origin/main`. It deletes with `git branch -d`, never `-D`. The branch must equal the PR head branch; `main`, the PR base, and any unrelated branch are rejected before any destructive step.
 
 The installed Paseo version inspected for this procedure is `0.17.3`. In that version, archiving a Paseo-owned worktree workspace stops and archives its owned agents and terminals, removes the Paseo-owned worktree directory when no other active workspace references it, and does not delete the Git branch. Verify `paseo --version` and the archive behavior for a different installed version before relying on it.
 

@@ -60,9 +60,9 @@ prepare() {
     local issue_record number state title url labels
     issue_record=$("$GH_BIN" issue view "$issue" \
         --json number,state,title,url,labels \
-        --jq '[.number, .state, .title, .url, ([.labels[].name] | join(","))] | @tsv' 2>/dev/null) \
+        --jq '[.number, .state, .title, .url, ([.labels[].name] | join(","))] | join("\u001f")' 2>/dev/null) \
         || workflow_die "could not read issue #$issue" 1
-    IFS=$'\t' read -r number state title url labels <<< "$issue_record"
+    IFS=$'\x1f' read -r number state title url labels <<< "$issue_record"
 
     if [ "$state" != "OPEN" ]; then
         workflow_die "issue #$issue is not open" 1
@@ -75,7 +75,8 @@ prepare() {
     if workflow_branch_exists "$root" "$branch"; then
         local_branch=yes
     fi
-    remote_sha="$(workflow_remote_branch_sha "$root" "$branch")"
+    remote_sha="$(workflow_remote_branch_sha "$root" "$branch")" \
+        || workflow_die "could not query the remote branch" 1
 
     local existing=no
     if [ -n "$worktree" ] || [ "$local_branch" = yes ] || [ -n "$remote_sha" ]; then
@@ -119,7 +120,10 @@ prepare() {
         else
             clean=no
         fi
-        workspace_id="$(workflow_paseo_workspace_id_for_cwd "$worktree" || true)"
+        if ! workspace_id="$(workflow_paseo_workspace_id_for_cwd "$worktree")"; then
+            workspace_id=""
+            workflow_info "warning: could not query Paseo workspaces"
+        fi
         if [ "$clean" = no ]; then
             workflow_info "warning: existing worktree has uncommitted, untracked, or ignored content"
         fi
@@ -185,8 +189,8 @@ verify() {
     local root
     root="$(cd "$path" && workflow_repo_root)"
     local worktree_root
-    worktree_root="$(cd "$path" && pwd -P)"
-    if [ "$(cd "$root" && pwd -P)" != "$worktree_root" ]; then
+    worktree_root="$(workflow_normalize_path "$path")"
+    if [ -n "$("$GIT_BIN" -C "$path" rev-parse --show-prefix)" ]; then
         workflow_die "--path must be the root of the worktree, not a subdirectory" 1
     fi
 

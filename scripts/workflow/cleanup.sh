@@ -8,13 +8,15 @@
 #   cleanup.sh execute --pr N [options]
 #       Perform every cleanup step that is safe. Dirty worktrees, unmerged
 #       branches, fork branches, and diverged main are retained and reported.
-#       Repeating a completed step is safe.
+#       Known reproducible build output (bin, obj, TestResults, artifacts,
+#       publish, .binlog) is removed before worktree removal; other ignored
+#       content is retained. Repeating a completed step is safe.
 #
 # Options:
-#   --verified-sha <sha>       Also require this reviewed head in merged history.
-#   --branch <name>            Override the PR head branch name.
+#   --verified-sha <sha>       Require this reviewed head to equal the PR head.
+#   --branch <name>            Make the PR head branch explicit; must match.
 #   --workspace-id <id>        Paseo workspace to archive.
-#   --worktree <path>          Issue worktree to remove.
+#   --worktree <path>          Issue worktree to remove; must have the PR branch.
 #   --main-worktree <path>     Worktree that has main checked out.
 #   --repository <owner/name>  Require this GitHub repository.
 #
@@ -27,7 +29,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 source "$script_dir/common.sh"
 
 usage() {
-    sed -n '2,23p' "${BASH_SOURCE[0]}"
+    sed -n '2,24p' "${BASH_SOURCE[0]}"
 }
 
 pr=""
@@ -71,12 +73,7 @@ parse_args() {
 }
 
 normalize_path() {
-    local path=$1
-    if [ -d "$path" ]; then
-        (cd "$path" && pwd -P)
-    else
-        printf '%s' "$path"
-    fi
+    workflow_normalize_path "$1"
 }
 
 worktree_registered() {
@@ -95,15 +92,21 @@ load_pr() {
     local record
     record=$("$GH_BIN" pr view "$pr" \
         --json number,state,mergedAt,mergeCommit,headRefName,headRefOid,headRepositoryOwner,headRepository,baseRefName,url \
-        --jq '[.number, .state, (.mergedAt // ""), (.mergeCommit.oid // ""), .headRefName, .headRefOid, (.headRepositoryOwner.login // ""), (.headRepository.name // ""), .baseRefName, (.url // "")] | @tsv' 2>/dev/null) \
+        --jq '[.number, .state, (.mergedAt // ""), (.mergeCommit.oid // ""), .headRefName, .headRefOid, (.headRepositoryOwner.login // ""), (.headRepository.name // ""), .baseRefName, (.url // "")] | join("\u001f")' 2>/dev/null) \
         || workflow_die "could not read pull request #$pr" 1
 
-    IFS=$'\t' read -r pr_number pr_state merged_at merge_sha pr_branch pr_head head_owner head_repo base_ref pr_url <<< "$record"
+    IFS=$'\x1f' read -r pr_number pr_state merged_at merge_sha pr_branch pr_head head_owner head_repo base_ref pr_url <<< "$record"
     if [ -z "$branch" ]; then
         branch=$pr_branch
     fi
+    if [ "$branch" = "main" ] || [ "$branch" = "$base_ref" ]; then
+        workflow_die "refusing to clean up the default or base branch" 1
+    fi
+    if [ "$branch" != "$pr_branch" ]; then
+        workflow_die "--branch must match the PR head branch" 1
+    fi
     if [ -n "$verified_sha" ] && [ "$pr_head" != "$verified_sha" ]; then
-        workflow_info "warning: PR head $pr_head differs from the supplied verified SHA; checking merged ancestry"
+        workflow_die "the supplied verified SHA does not match the PR head" 1
     fi
 
     printf 'cleanup: repository=%s\n' "$actual_repository"
@@ -162,7 +165,10 @@ verify_merge() {
 
 remote_step() {
     local remote_sha
-    remote_sha="$(workflow_remote_branch_sha "$root" "$branch")"
+    if ! remote_sha="$(workflow_remote_branch_sha "$root" "$branch")"; then
+        block "remote_branch_query_failed"
+        return 0
+    fi
     if [ -z "$remote_sha" ]; then
         printf 'cleanup: remote_branch=absent\n'
         return 0
@@ -195,7 +201,12 @@ remote_step() {
     if ! "$GIT_BIN" -C "$root" fetch origin --prune >/dev/null 2>&1; then
         printf 'cleanup: warning=remote_tracking_refresh_failed\n'
     fi
-    if [ -n "$(workflow_remote_branch_sha "$root" "$branch")" ]; then
+    local remaining
+    if ! remaining="$(workflow_remote_branch_sha "$root" "$branch")"; then
+        block "remote_branch_verify_failed"
+        return 0
+    fi
+    if [ -n "$remaining" ]; then
         block "remote_branch_still_present"
         return 0
     fi
@@ -249,13 +260,33 @@ main_step() {
 }
 
 archive_workspace() {
+    local status=0
+    if workflow_paseo_workspace_exists "$workspace_id"; then
+        status=0
+    else
+        status=$?
+        if [ "$status" -eq 1 ]; then
+            printf 'cleanup: workspace=absent\n'
+            return 0
+        fi
+        block "workspace_query_failed"
+        return 1
+    fi
+
     if ! "$PASEO_BIN" workspace archive "$workspace_id" >/dev/null 2>&1; then
         block "workspace_archive_failed"
         return 1
     fi
+
     if workflow_paseo_workspace_exists "$workspace_id"; then
         block "workspace_still_present"
         return 1
+    else
+        status=$?
+        if [ "$status" -ne 1 ]; then
+            block "workspace_verify_failed"
+            return 1
+        fi
     fi
     printf 'cleanup: workspace=archived\n'
     return 0
@@ -271,8 +302,16 @@ workspace_step() {
             printf 'cleanup: workspace=absent\n'
             return 0
         fi
-        if ! workflow_paseo_workspace_exists "$workspace_id"; then
-            printf 'cleanup: workspace=absent\n'
+        local status=0
+        if workflow_paseo_workspace_exists "$workspace_id"; then
+            status=0
+        else
+            status=$?
+            if [ "$status" -eq 1 ]; then
+                printf 'cleanup: workspace=absent\n'
+                return 0
+            fi
+            block "workspace_query_failed"
             return 0
         fi
         printf 'cleanup: workspace=present id=%s\n' "$workspace_id"
@@ -292,7 +331,7 @@ workspace_step() {
     printf 'cleanup: worktree=present path=%s\n' "$path"
 
     local cwd
-    cwd="$(pwd -P)"
+    cwd="$(workflow_normalize_path "$PWD")"
     if workflow_path_is_within "$path" "$cwd"; then
         block "cleanup_running_inside_target_worktree"
         return 0
@@ -303,13 +342,37 @@ workspace_step() {
         return 0
     fi
 
+    local worktree_branch
+    worktree_branch=$("$GIT_BIN" -C "$path" branch --show-current)
+    if [ "$worktree_branch" != "$branch" ]; then
+        block "worktree_branch_mismatch"
+        return 0
+    fi
+
     if ! workflow_worktree_status "$path"; then
         block "worktree_has_local_content"
         return 0
     fi
 
-    if [ -z "$workspace_id" ]; then
-        workspace_id="$(workflow_paseo_workspace_id_for_cwd "$path" || true)"
+    if [ -z "$workspace_id" ] && command -v "$PASEO_BIN" >/dev/null 2>&1; then
+        if ! workspace_id="$(workflow_paseo_workspace_id_for_cwd "$path")"; then
+            block "workspace_query_failed"
+            return 0
+        fi
+    fi
+    if [ -n "$workspace_id" ]; then
+        local workspace_status=0
+        if workflow_paseo_workspace_exists "$workspace_id"; then
+            workspace_status=0
+        else
+            workspace_status=$?
+            if [ "$workspace_status" -eq 2 ]; then
+                block "workspace_query_failed"
+                return 0
+            fi
+            printf 'cleanup: workspace=absent id=%s\n' "$workspace_id"
+            workspace_id=""
+        fi
     fi
     if [ -n "$workspace_id" ]; then
         printf 'cleanup: workspace=present id=%s\n' "$workspace_id"
@@ -333,6 +396,7 @@ workspace_step() {
         printf 'cleanup: warning=worktree_prune_failed\n'
     fi
     if worktree_registered "$root" "$path"; then
+        workflow_remove_reproducible_output "$path"
         if ! "$GIT_BIN" -C "$root" worktree remove "$path" >/dev/null 2>&1; then
             block "worktree_remove_failed"
             return 0

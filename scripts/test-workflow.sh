@@ -80,7 +80,7 @@ case "$*" in
         printf '%s\n' "${STUB_REPOSITORY:-owner/repo}"
         ;;
     "issue view"*"number,state,title,url,labels"*)
-        printf '%s\n' "${STUB_ISSUE_RECORD:-1	OPEN	Test issue	https://example.test/issues/1	ready-for-agent}"
+        printf '%b\n' "${STUB_ISSUE_RECORD:-1\x1fOPEN\x1fTest issue\x1fhttps://example.test/issues/1\x1fready-for-agent}"
         ;;
     "issue view"*"json state"*)
         printf '%s\n' "${STUB_ISSUE_STATE:-OPEN}"
@@ -92,8 +92,7 @@ case "$*" in
         printf '%s\n' "$STUB_PR_RECORD"
         ;;
     "pr checks"*)
-        printf '%b' "${STUB_CHECKS:-build	SUCCESS	pass
-}"
+        printf '%b' "${STUB_CHECKS:-build\x1fSUCCESS\x1fpass\n}"
         exit "${STUB_CHECKS_EXIT:-0}"
         ;;
     "pr merge"*)
@@ -113,6 +112,9 @@ STUB
 set -euo pipefail
 case "$*" in
     "workspace ls --json")
+        if [ "${STUB_PASEO_FAIL:-0}" = "1" ]; then
+            exit 1
+        fi
         if [ -f "${STUB_PASEO_ARCHIVED:-/nonexistent}" ]; then
             printf '[]\n'
         else
@@ -175,7 +177,7 @@ workspace_base=$(git -C "$workspace_seed" rev-parse origin/main)
 git -C "$workspace_seed" worktree add -q "$workspace_fixture/worktree" chore/workspace-test
 
 export STUB_REPOSITORY="owner/repo"
-export STUB_ISSUE_RECORD=$'1\tOPEN\tTest issue\thttps://example.test/issues/1\tready-for-agent'
+export STUB_ISSUE_RECORD=$'1\x1fOPEN\x1fTest issue\x1fhttps://example.test/issues/1\x1fready-for-agent'
 export STUB_ISSUE_STATE="OPEN"
 
 run_at "$workspace_seed" "$root/scripts/workflow/workspace.sh" prepare \
@@ -197,11 +199,11 @@ run_at "$workspace_fixture/worktree" "$root/scripts/workflow/workspace.sh" verif
 assert_exit 1 "workspace verify dirty"
 rm -f "$workspace_fixture/worktree/untracked.txt"
 
-export STUB_ISSUE_RECORD=$'1\tOPEN\tTest issue\thttps://example.test/issues/1\tneeds-triage'
+export STUB_ISSUE_RECORD=$'1\x1fOPEN\x1fTest issue\x1fhttps://example.test/issues/1\x1fneeds-triage'
 run_at "$workspace_seed" "$root/scripts/workflow/workspace.sh" prepare \
     --issue 1 --branch chore/new-branch
 assert_exit 1 "workspace prepare unready"
-export STUB_ISSUE_RECORD=$'1\tOPEN\tTest issue\thttps://example.test/issues/1\tready-for-agent'
+export STUB_ISSUE_RECORD=$'1\x1fOPEN\x1fTest issue\x1fhttps://example.test/issues/1\x1fready-for-agent'
 
 run_at "$workspace_seed" "$root/scripts/workflow/workspace.sh" prepare \
     --issue 1 --branch chore/new-branch
@@ -243,14 +245,39 @@ assert_exit 1 "validate range reversed"
 run_at "$range_seed" "$root/scripts/workflow/validate.sh" targeted
 assert_exit 2 "validate targeted without checks"
 
+validate_fixture="$fixture/validate"
+mkdir -p "$validate_fixture/scripts"
+git init -q "$validate_fixture"
+configure_repo "$validate_fixture"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$validate_fixture/scripts/test-check-documentation.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$validate_fixture/scripts/check-documentation.sh"
+chmod +x "$validate_fixture/scripts/test-check-documentation.sh" "$validate_fixture/scripts/check-documentation.sh"
+printf 'fixture\n' > "$validate_fixture/file.txt"
+git -C "$validate_fixture" add .
+git -C "$validate_fixture" commit -q -m "chore: validation fixture"
+
+run_at "$validate_fixture" "$root/scripts/workflow/validate.sh" targeted --docs
+assert_exit 1 "validate compound failure"
+assert_contains "validate: check=docs result=fail" "validate compound failure"
+assert_contains "validate: repository=" "validate compound failure"
+assert_contains "validate: commit=" "validate compound failure"
+assert_contains "validate: dirty=" "validate compound failure"
+assert_contains "validate: result=fail" "validate compound failure"
+
+mkdir -p "$validate_fixture/subdirectory"
+run_at "$validate_fixture/subdirectory" "$root/scripts/workflow/validate.sh" targeted --docs
+assert_exit 1 "validate from subdirectory"
+assert_contains "validate: repository=" "validate from subdirectory"
+assert_contains "validate: check=docs result=fail" "validate from subdirectory"
+
 # --- Merge readiness ---------------------------------------------------------
 
 merge_head="1111111111111111111111111111111111111111"
 merge_other="2222222222222222222222222222222222222222"
 export STUB_REPOSITORY="owner/repo"
 export STUB_PR_STATE="MERGED"
-export STUB_PR_RECORD=$'7\tOPEN\tfalse\tmain\t1111111111111111111111111111111111111111\tchore/merge-test\towner\trepo\tMERGEABLE\tCLEAN\thttps://example.test/pull/7'
-export STUB_CHECKS=$'build\tSUCCESS\tpass\n'
+export STUB_PR_RECORD=$'7\x1fOPEN\x1ffalse\x1fmain\x1f1111111111111111111111111111111111111111\x1fchore/merge-test\x1fowner\x1frepo\x1fMERGEABLE\x1fCLEAN\x1fhttps://example.test/pull/7'
+export STUB_CHECKS=$'build\x1fSUCCESS\x1fpass\ndocumentation\x1fSUCCESS\x1fpass\n'
 export STUB_CHECKS_EXIT=0
 : > "$gh_log"
 
@@ -260,6 +287,13 @@ assert_exit 0 "merge inspect ready"
 assert_contains "merge: head_matches=yes" "merge inspect ready"
 assert_contains "merge: result=ready" "merge inspect ready"
 assert_not_contains "merge: result=merged" "merge inspect ready"
+
+export STUB_CHECKS=$'build\x1fSUCCESS\x1fpass\n'
+run_at "$fixture" "$root/scripts/workflow/merge.sh" inspect \
+    --pr 7 --verified-sha "$merge_head"
+assert_exit 1 "merge inspect default documentation"
+assert_contains "merge: check=documentation result=missing" "merge inspect default documentation"
+export STUB_CHECKS=$'build\x1fSUCCESS\x1fpass\ndocumentation\x1fSUCCESS\x1fpass\n'
 
 run_at "$fixture" "$root/scripts/workflow/merge.sh" inspect \
     --pr 7 --verified-sha "$merge_other"
@@ -271,14 +305,14 @@ run_at "$fixture" "$root/scripts/workflow/merge.sh" inspect \
     --pr 7 --verified-sha
 assert_exit 2 "merge inspect missing value"
 
-export STUB_CHECKS=$'build\tPENDING\tpending\n'
+export STUB_CHECKS=$'build\x1fPENDING\x1fpending\ndocumentation\x1fSUCCESS\x1fpass\n'
 export STUB_CHECKS_EXIT=8
 run_at "$fixture" "$root/scripts/workflow/merge.sh" inspect \
     --pr 7 --verified-sha "$merge_head"
 assert_exit 1 "merge inspect pending"
 assert_contains "merge: check=build state=PENDING bucket=pending result=fail" "merge inspect pending"
 
-export STUB_CHECKS=$'build\tSUCCESS\tpass\n'
+export STUB_CHECKS=$'build\x1fSUCCESS\x1fpass\ndocumentation\x1fSUCCESS\x1fpass\n'
 export STUB_CHECKS_EXIT=0
 : > "$gh_log"
 run_at "$fixture" "$root/scripts/workflow/merge.sh" execute \
@@ -296,7 +330,7 @@ else
     ok
 fi
 
-export STUB_PR_RECORD=$'7\tOPEN\tfalse\tmain\t1111111111111111111111111111111111111111\tchore/merge-test\tfork-owner\trepo\tMERGEABLE\tCLEAN\thttps://example.test/pull/7'
+export STUB_PR_RECORD=$'7\x1fOPEN\x1ffalse\x1fmain\x1f1111111111111111111111111111111111111111\x1fchore/merge-test\x1ffork-owner\x1frepo\x1fMERGEABLE\x1fCLEAN\x1fhttps://example.test/pull/7'
 run_at "$fixture" "$root/scripts/workflow/merge.sh" inspect \
     --pr 7 --verified-sha "$merge_head" --delete-branch
 assert_exit 1 "merge inspect fork deletion"
@@ -321,7 +355,7 @@ git -C "$cleanup_seed" worktree add -q "$cleanup_worktree" chore/cleanup-test
 
 export STUB_REPOSITORY="owner/repo"
 export STUB_PR_STATE="MERGED"
-export STUB_PR_RECORD="$(printf '8\tMERGED\t2026-01-01T00:00:00Z\t%s\tchore/cleanup-test\t%s\towner\trepo\tmain\thttps://example.test/pull/8' "$cleanup_merge" "$cleanup_head")"
+export STUB_PR_RECORD="$(printf '8\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/cleanup-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/8' "$cleanup_merge" "$cleanup_head")"
 export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_cleanup","cwd":"%s"}]' "$cleanup_worktree")"
 rm -f "$paseo_archived"
 : > "$paseo_log"
@@ -340,6 +374,36 @@ if [ -d "$cleanup_worktree" ] && git -C "$cleanup_seed" show-ref --verify --quie
 else
     fail "cleanup inspect changed local state"
 fi
+
+wrong_worktree="$cleanup_fixture/wrong-worktree"
+git -C "$cleanup_seed" worktree add -q "$wrong_worktree" -b chore/wrong-worktree HEAD
+run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 8 --verified-sha "$cleanup_head" \
+    --workspace-id wks_cleanup --worktree "$wrong_worktree" --main-worktree "$cleanup_seed"
+assert_exit 1 "cleanup wrong worktree"
+assert_contains "cleanup: blocked=worktree_branch_mismatch" "cleanup wrong worktree"
+if [ -d "$wrong_worktree" ]; then
+    ok
+else
+    fail "cleanup inspect removed a mismatched worktree"
+fi
+git -C "$cleanup_seed" worktree remove "$wrong_worktree"
+git -C "$cleanup_seed" branch -d chore/wrong-worktree >/dev/null
+
+export STUB_PASEO_FAIL=1
+run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 8 --verified-sha "$cleanup_head" \
+    --workspace-id wks_cleanup --worktree "$cleanup_worktree" --main-worktree "$cleanup_seed"
+assert_exit 1 "cleanup paseo query failure"
+assert_contains "cleanup: blocked=workspace_query_failed" "cleanup paseo query failure"
+unset STUB_PASEO_FAIL
+
+export STUB_PR_RECORD="$(printf '15\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fmain\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/15' "$cleanup_merge" "$cleanup_head")"
+run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 15 --branch main
+assert_exit 1 "cleanup main branch"
+assert_contains "refusing to clean up the default or base branch" "cleanup main branch"
+export STUB_PR_RECORD="$(printf '8\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/cleanup-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/8' "$cleanup_merge" "$cleanup_head")"
 
 run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --pr 8 --verified-sha "$cleanup_head" \
@@ -381,6 +445,12 @@ assert_contains "cleanup: local_branch=absent" "cleanup idempotent"
 assert_contains "cleanup: worktree=absent" "cleanup idempotent"
 assert_contains "cleanup: result=pass" "cleanup idempotent"
 
+export STUB_PR_RECORD=$'13\x1fOPEN\x1f\x1f\x1fchore/open-test\x1f1111111111111111111111111111111111111111\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/13'
+run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect --pr 13
+assert_exit 1 "cleanup open pr fields"
+assert_contains "cleanup: base=main head=chore/open-test" "cleanup open pr fields"
+assert_contains "cleanup: merge_commit= merged_at=" "cleanup open pr fields"
+
 # --- Cleanup safety: dirty worktree and fork branch --------------------------
 
 dirty_fixture="$fixture/dirty"
@@ -399,7 +469,7 @@ dirty_worktree="$dirty_fixture/worktree"
 git -C "$dirty_seed" worktree add -q "$dirty_worktree" chore/dirty-test
 printf 'local note\n' > "$dirty_worktree/untracked.txt"
 
-export STUB_PR_RECORD="$(printf '9\tMERGED\t2026-01-01T00:00:00Z\t%s\tchore/dirty-test\t%s\towner\trepo\tmain\thttps://example.test/pull/9' "$dirty_merge" "$dirty_head")"
+export STUB_PR_RECORD="$(printf '9\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/dirty-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/9' "$dirty_merge" "$dirty_head")"
 export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_dirty","cwd":"%s"}]' "$dirty_worktree")"
 rm -f "$paseo_archived"
 
@@ -419,7 +489,7 @@ else
     fail "cleanup deleted a branch whose worktree was retained"
 fi
 
-export STUB_PR_RECORD="$(printf '10\tMERGED\t2026-01-01T00:00:00Z\t%s\tchore/cleanup-test\t%s\tfork-owner\trepo\tmain\thttps://example.test/pull/10' "$cleanup_merge" "$cleanup_head")"
+export STUB_PR_RECORD="$(printf '10\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/cleanup-test\x1f%s\x1ffork-owner\x1frepo\x1fmain\x1fhttps://example.test/pull/10' "$cleanup_merge" "$cleanup_head")"
 rm -f "$paseo_archived"
 run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
     --pr 10 --verified-sha "$cleanup_head"
@@ -430,7 +500,7 @@ assert_contains "cleanup: same_repository=no" "cleanup fork retention"
 # already absent. Assert the retained-fork path directly with a live branch.
 rm -f "$dirty_worktree/untracked.txt"
 git -C "$dirty_seed" push -q origin chore/dirty-test
-export STUB_PR_RECORD="$(printf '11\tMERGED\t2026-01-01T00:00:00Z\t%s\tchore/dirty-test\t%s\tfork-owner\trepo\tmain\thttps://example.test/pull/11' "$dirty_merge" "$dirty_head")"
+export STUB_PR_RECORD="$(printf '11\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/dirty-test\x1f%s\x1ffork-owner\x1frepo\x1fmain\x1fhttps://example.test/pull/11' "$dirty_merge" "$dirty_head")"
 run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" inspect \
     --pr 11 --verified-sha "$dirty_head" --branch chore/dirty-test --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
 assert_exit 0 "cleanup fork live branch"
@@ -448,7 +518,7 @@ printf 'unmerged\n' >> "$dirty_seed/file.txt"
 git -C "$dirty_seed" commit -q -am "feat: unmerged"
 unmerged_sha=$(git -C "$dirty_seed" rev-parse HEAD)
 git -C "$dirty_seed" checkout -q main
-export STUB_PR_RECORD="$(printf '12\tMERGED\t2026-01-01T00:00:00Z\t%s\tchore/dirty-test\t%s\towner\trepo\tmain\thttps://example.test/pull/12' "$unmerged_sha" "$dirty_head")"
+export STUB_PR_RECORD="$(printf '12\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/dirty-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/12' "$unmerged_sha" "$dirty_head")"
 run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" inspect \
     --pr 12 --verified-sha "$dirty_head" --branch chore/dirty-test --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
 assert_exit 1 "cleanup unverified merge"
@@ -457,6 +527,25 @@ if [ -n "$(git -C "$dirty_seed" ls-remote --heads origin chore/dirty-test)" ]; t
     ok
 else
     fail "cleanup deleted a remote branch before verifying the merge"
+fi
+
+# Reproducible ignored build output must not block a normal cleanup, while other
+# ignored content still would.
+printf 'bin/\n' >> "$dirty_seed/.git/info/exclude"
+mkdir -p "$dirty_worktree/bin"
+printf 'binary\n' > "$dirty_worktree/bin/output.dll"
+export STUB_PR_RECORD="$(printf '14\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/dirty-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/14' "$dirty_merge" "$dirty_head")"
+rm -f "$paseo_archived"
+run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 14 --verified-sha "$dirty_head" \
+    --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
+assert_exit 0 "cleanup ignored build output"
+assert_contains "cleanup: worktree=removed" "cleanup ignored build output"
+assert_contains "cleanup: result=pass" "cleanup ignored build output"
+if [ ! -d "$dirty_worktree" ]; then
+    ok
+else
+    fail "cleanup retained a worktree with only reproducible output"
 fi
 
 printf 'workflow-script tests: %s passed, %s failed\n' "$passed" "$failed"

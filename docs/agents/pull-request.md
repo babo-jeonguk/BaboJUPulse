@@ -170,8 +170,7 @@ Use the read-only merge inspection to confirm the mechanical PR state before req
 ```bash
 scripts/workflow/merge.sh inspect \
   --pr <number> \
-  --verified-sha <final-head-sha> \
-  --require-check documentation
+  --verified-sha <final-head-sha>
 ```
 
 It verifies the PR state, base, draft state, head SHA, mergeability, and named checks. It does not approve the change; review and documentation freshness remain separate.

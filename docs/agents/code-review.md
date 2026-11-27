@@ -11,14 +11,14 @@ Evaluate the actual change against the issue specification and the repository's 
 - The issue and its acceptance criteria.
 - The base commit SHA and the exact head commit SHA under review.
 - The diff for that range and the relevant surrounding code.
-- The implementer's verification evidence and known limitations.
+- The implementer's verification evidence and known limitations, including each slice checkpoint and the full validation result.
 - [Coding standards](../../CODING_STANDARDS.md), [architecture](../architecture.md), relevant [ADRs](../adr/), and [quality gates](quality-gates.md).
 
 ## Entry criteria
 
 - Implementation is complete for the issue's scope.
 - The working tree is clean enough that the diff is reproducible.
-- The required checks have run on the head commit, or the absence of a check is explained.
+- Each slice checkpoint is recorded, and the required checks, including full validation, have run on the head commit, or the absence of a check is explained.
 - The review is performed in a fresh context, not by continuing the implementation reasoning.
 
 ## Procedure
@@ -73,7 +73,7 @@ The completed template may be the session output. Store it under the local-only 
 
 ### 5. Verify claims independently
 
-Run the commands needed to confirm the important claims. Use `scripts/workflow/validate.sh full` or a targeted mode when only part of the suite applies. At minimum, inspect that the reported checks correspond to the head commit. A result reported for another commit is not evidence for this review. Do not accept a build result as evidence of Windows runtime behavior.
+Run the commands needed to confirm the important claims. Use `scripts/workflow/validate.sh full` or a targeted mode when only part of the suite applies. At minimum, inspect that the reported checks correspond to the head commit and that each slice checkpoint's commit tree matches its validated tree. A targeted result or a pre-commit slice result is not full validation of the reviewed commit. A result reported for another commit is not evidence for this review. Do not accept a build result as evidence of Windows runtime behavior.
 
 ### 6. Record the decision
 
@@ -149,6 +149,7 @@ If production code, executable configuration, dependencies, tests, scripts, or q
 
 - A review report in the [review report template](templates/review-report.md) with the reviewed SHA and decision.
 - Acceptance-criteria coverage with evidence.
+- Slice checkpoint evidence and the full validation result for the reviewed head.
 - Blocking and non-blocking findings with stable identifiers.
 - Verification performed, the commit it applies to, and unverified areas.
 - A clear handoff to remediation when changes are requested.
@@ -165,6 +166,7 @@ If production code, executable configuration, dependencies, tests, scripts, or q
 - Reviewing a stale commit, an uncommitted diff, or a summary instead of the actual change.
 - Approving a change without checking the acceptance criteria.
 - Approving one's own implementation without a fresh independent context.
+- Accepting a pre-commit slice result or a targeted result as full validation of the reviewed commit.
 - Treating a passing build as proof of runtime behavior.
 - Hiding a gate change, suppression, or test gap as a style comment.
 - Turning a non-blocking preference into a blocking demand without a rule or requirement.

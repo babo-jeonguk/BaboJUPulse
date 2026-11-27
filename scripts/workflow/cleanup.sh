@@ -7,11 +7,11 @@
 #
 #   cleanup.sh execute --pr N [options]
 #       Perform every cleanup step that is safe. Unmerged local branches,
-#       dirty worktrees, fork branches, unrelated or ongoing agents, and
-#       diverged main are retained and reported. Any ignored content retains
-#       the worktree unless --remove-build-output explicitly requests removal
-#       of content that is fully reproducible build output. Repeating a
-#       completed step is safe.
+#       unmerged or unverifiable remote branch tips, dirty worktrees, fork
+#       branches, unrelated or ongoing agents, and diverged main are retained
+#       and reported. Any ignored content retains the worktree unless
+#       --remove-build-output explicitly requests removal of content that is
+#       fully reproducible build output. Repeating a completed step is safe.
 #
 # Options:
 #   --verified-sha <sha>       Require this reviewed head to equal the PR head.
@@ -293,10 +293,22 @@ remote_step() {
         block "remote_branch_changed_before_verification"
         return 0
     fi
-    if ! "$GIT_BIN" -C "$root" merge-base --is-ancestor "$remote_sha" origin/main; then
-        printf 'cleanup: remote_branch=retained reason=commits_not_merged\n'
-        return 0
-    fi
+    local remote_ancestry=0
+    "$GIT_BIN" -C "$root" merge-base --is-ancestor "$remote_sha" origin/main \
+        || remote_ancestry=$?
+    case "$remote_ancestry" in
+        0) ;;
+        1)
+            printf 'cleanup: remote_branch=retained reason=commits_not_merged\n'
+            block "remote_branch_commits_not_merged"
+            return 0
+            ;;
+        *)
+            printf 'cleanup: remote_branch=retained reason=ancestry_failed\n'
+            block "remote_branch_ancestry_failed"
+            return 0
+            ;;
+    esac
 
     printf 'cleanup: remote_branch=delete_candidate\n'
     if [ "$MODE" = inspect ]; then

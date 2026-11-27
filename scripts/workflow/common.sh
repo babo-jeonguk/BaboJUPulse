@@ -541,7 +541,9 @@ workflow_remove_reproducible_output() {
         if ! workflow_reproducible_output_entry "$path" "$target"; then
             continue
         fi
-        rm -rf -- "$target"
+        if ! rm -rf -- "$target"; then
+            return 3
+        fi
     done <<< "$ignored"
     return 0
 }

@@ -285,6 +285,11 @@ if [[ " $* " == *" remote get-url "* ]]; then
     fi
     exec "$real_git" -C "$repo" config --get-all remote.origin.url
 fi
+if [ -n "${STUB_GIT_FAIL_ANCESTRY_SHA:-}" ] \
+    && [[ " $* " == *" merge-base --is-ancestor "* ]] \
+    && [[ " $* " == *"${STUB_GIT_FAIL_ANCESTRY_SHA}"* ]]; then
+    exit 128
+fi
 if [ "${STUB_GIT_FAIL_WORKTREE:-0}" = "1" ] && [[ " $* " == *" worktree list "* ]]; then
     exit 1
 fi
@@ -585,6 +590,348 @@ run_at "$validate_fixture/subdirectory" "$root/scripts/workflow/validate.sh" tar
 assert_exit 1 "validate from subdirectory"
 assert_contains "validate: repository=" "validate from subdirectory"
 assert_contains "validate: check=docs result=fail" "validate from subdirectory"
+
+# --- Validation selection, ordering, and prerequisites ----------------------
+
+dotnet_stub="$bin/dotnet"
+dotnet_log="$fixture/dotnet.log"
+cat > "$dotnet_stub" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "${STUB_DOTNET_LOG:-/dev/null}"
+command=${1:-}
+if [ "${STUB_DOTNET_FAIL:-}" = "$command" ]; then
+    exit 1
+fi
+if [ -n "${STUB_DOTNET_DIRTY_ON:-}" ] && [ "$command" = "$STUB_DOTNET_DIRTY_ON" ]; then
+    printf 'concurrent\n' > "${STUB_DOTNET_DIRTY_PATH:?}"
+fi
+if [ -n "${STUB_DOTNET_APPEND_ON:-}" ] && [ "$command" = "$STUB_DOTNET_APPEND_ON" ]; then
+    printf 'concurrent append\n' >> "${STUB_DOTNET_APPEND_PATH:?}"
+fi
+if [ -n "${STUB_DOTNET_STAGE_ON:-}" ] && [ "$command" = "$STUB_DOTNET_STAGE_ON" ]; then
+    printf 'concurrent staged append\n' >> "${STUB_DOTNET_APPEND_PATH:?}"
+    "${REAL_GIT:?}" -C "${STUB_DOTNET_REPO:?}" add "${STUB_DOTNET_STAGE_PATH:?}"
+fi
+if [ -n "${STUB_DOTNET_COMMIT_ON:-}" ] && [ "$command" = "$STUB_DOTNET_COMMIT_ON" ]; then
+    "${REAL_GIT:?}" -C "${STUB_DOTNET_REPO:?}" commit -q --allow-empty -m "chore: concurrent"
+fi
+exit 0
+STUB
+chmod +x "$dotnet_stub"
+export DOTNET_BIN="$dotnet_stub"
+export STUB_DOTNET_LOG="$dotnet_log"
+
+write_passing_script() {
+    local path=$1
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$path"
+    chmod +x "$path"
+}
+
+slice_fixture="$fixture/slice"
+mkdir -p "$slice_fixture/scripts"
+git init -q "$slice_fixture"
+configure_repo "$slice_fixture"
+for script in test-check-documentation.sh check-documentation.sh \
+    test-public-content.sh check-public-content.sh \
+    check-workflow-shell.sh test-workflow.sh; do
+    write_passing_script "$slice_fixture/scripts/$script"
+done
+printf 'slice fixture\n' > "$slice_fixture/file.txt"
+git -C "$slice_fixture" add .
+git -C "$slice_fixture" commit -q -m "chore: slice validation fixture"
+printf 'staged slice\n' >> "$slice_fixture/file.txt"
+git -C "$slice_fixture" add file.txt
+
+assert_check_order() {
+    local expected=$1
+    local label=$2
+    local actual
+    actual=$(sed -n 's/^validate: check=\([a-z-]*\) result=running$/\1/p' "$output" | tr '\n' ' ')
+    assert_equals "$expected" "$actual" "$label"
+}
+
+dotnet_command_count() {
+    awk -v wanted="$1" '$1 == wanted { count++ } END { print count + 0 }' "$dotnet_log"
+}
+
+dotnet_commands() {
+    awk 'NF { if (seen++) printf " "; printf "%s", $1 } END { if (seen) printf "\n" }' "$dotnet_log"
+}
+
+output_value() {
+    sed -n "s/^validate: $1=//p" "$output" | tail -n 1
+}
+
+restage_slice_change() {
+    git -C "$slice_fixture" checkout -q HEAD -- file.txt
+    printf 'staged slice\n' >> "$slice_fixture/file.txt"
+    git -C "$slice_fixture" add file.txt
+}
+
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice
+assert_exit 2 "validate slice without profile"
+assert_contains "slice requires at least one profile" "validate slice without profile"
+
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --unknown
+assert_exit 2 "validate slice unknown argument"
+assert_contains "unknown argument: --unknown" "validate slice unknown argument"
+
+printf 'class Staged { }\n' > "$slice_fixture/Program.cs"
+git -C "$slice_fixture" add Program.cs
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 2 "validate slice missing csharp profile"
+assert_contains "staged changes require missing profile(s): --csharp" \
+    "validate slice missing csharp profile"
+assert_not_contains "validate: check=docs result=running" \
+    "validate slice missing csharp profile"
+
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs --csharp
+assert_exit 0 "validate slice additional profile"
+assert_check_order "restore format build test docs public-content " \
+    "validate slice additional profile"
+git -C "$slice_fixture" reset -q -- Program.cs
+rm -f "$slice_fixture/Program.cs"
+
+printf '# staged workflow change\n' >> "$slice_fixture/scripts/test-workflow.sh"
+git -C "$slice_fixture" add scripts/test-workflow.sh
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 2 "validate slice missing workflow profile"
+assert_contains "staged changes require missing profile(s): --workflow" \
+    "validate slice missing workflow profile"
+git -C "$slice_fixture" checkout -q HEAD -- scripts/test-workflow.sh
+
+printf '{}\n' > "$slice_fixture/global.json"
+git -C "$slice_fixture" add global.json
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 2 "validate slice missing config profile"
+assert_contains "staged changes require missing profile(s): --config" \
+    "validate slice missing config profile"
+git -C "$slice_fixture" reset -q -- global.json
+rm -f "$slice_fixture/global.json"
+
+printf 'is_global = true\n' > "$slice_fixture/.globalconfig"
+git -C "$slice_fixture" add .globalconfig
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 2 "validate slice missing globalconfig profile"
+assert_contains "staged changes require missing profile(s): --config" \
+    "validate slice missing globalconfig profile"
+git -C "$slice_fixture" reset -q -- .globalconfig
+rm -f "$slice_fixture/.globalconfig"
+
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 0 "validate slice docs"
+assert_check_order "docs public-content " "validate slice docs"
+assert_contains "validate: mode=slice" "validate slice docs"
+
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice \
+    --workflow --csharp --docs --config --csharp
+assert_exit 0 "validate slice mixed union"
+assert_check_order "restore format build test policy docs public-content workflow " \
+    "validate slice mixed union"
+build_count=$(dotnet_command_count build)
+format_count=$(dotnet_command_count format)
+assert_equals "1" "$build_count" "validate slice mixed deduplicates build"
+assert_equals "1" "$format_count" "validate slice mixed deduplicates format"
+
+: > "$dotnet_log"
+export STUB_DOTNET_FAIL=build
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --config
+unset STUB_DOTNET_FAIL
+assert_exit 1 "validate slice failed build"
+assert_contains "validate: check=build result=fail" "validate slice failed build"
+assert_contains "validate: check=test result=skipped reason=prerequisite-build-failed" \
+    "validate slice failed build"
+assert_contains "validate: check=policy result=skipped reason=prerequisite-build-failed" \
+    "validate slice failed build"
+assert_contains "validate: check=public-content result=pass" "validate slice failed build"
+assert_not_contains "validate: check=test result=running" "validate slice failed build"
+assert_not_contains "validate: check=policy result=running" "validate slice failed build"
+test_count=$(dotnet_command_count test)
+assert_equals "0" "$test_count" "validate slice failed build does not run tests"
+dotnet_sequence=$(dotnet_commands)
+assert_equals "restore format build" "$dotnet_sequence" \
+    "validate slice failed build stops dependent commands"
+
+: > "$dotnet_log"
+export STUB_DOTNET_FAIL=restore
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --csharp
+unset STUB_DOTNET_FAIL
+assert_exit 1 "validate slice failed restore"
+assert_contains "validate: check=restore result=fail" "validate slice failed restore"
+assert_contains "validate: check=build result=skipped reason=prerequisite-restore-failed" \
+    "validate slice failed restore"
+assert_contains "validate: check=test result=skipped reason=prerequisite-build-skipped" \
+    "validate slice failed restore"
+assert_not_contains "validate: check=build result=running" "validate slice failed restore"
+assert_not_contains "validate: check=test result=running" "validate slice failed restore"
+dotnet_sequence=$(dotnet_commands)
+assert_equals "restore" "$dotnet_sequence" \
+    "validate slice failed restore does not run dependent commands"
+
+# --- Slice snapshot binding and checkpoint verification --------------------
+
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 0 "validate slice snapshot"
+assert_contains "validate: snapshot=staged" "validate slice snapshot"
+snapshot_head=$(output_value commit)
+snapshot_tree=$(output_value index_tree)
+current_head=$(git -C "$slice_fixture" rev-parse HEAD)
+expected_tree=$(git -C "$slice_fixture" write-tree)
+assert_equals "$current_head" "$snapshot_head" "validate slice snapshot starting HEAD"
+assert_equals "$expected_tree" "$snapshot_tree" "validate slice snapshot tree"
+
+printf 'unstaged\n' >> "$slice_fixture/file.txt"
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 1 "validate slice unstaged change"
+assert_contains "worktree to match the index" "validate slice unstaged change"
+assert_not_contains "validate: check=docs result=running" "validate slice unstaged change"
+git -C "$slice_fixture" checkout -q -- file.txt
+
+printf 'untracked\n' > "$slice_fixture/untracked.txt"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 1 "validate slice untracked file"
+assert_contains "no non-ignored untracked files" "validate slice untracked file"
+assert_not_contains "validate: check=docs result=running" "validate slice untracked file"
+rm -f "$slice_fixture/untracked.txt"
+
+printf 'bin/\n' >> "$slice_fixture/.git/info/exclude"
+mkdir -p "$slice_fixture/bin"
+printf 'generated\n' > "$slice_fixture/bin/generated.dll"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 0 "validate slice ignored output"
+assert_contains "validate: snapshot=staged" "validate slice ignored output"
+rm -rf "${slice_fixture:?}/bin"
+
+export STUB_DOTNET_APPEND_ON=build
+export STUB_DOTNET_APPEND_PATH="$slice_fixture/file.txt"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --csharp
+unset STUB_DOTNET_APPEND_ON STUB_DOTNET_APPEND_PATH
+assert_exit 3 "validate slice dirty-to-dirty unstaged change"
+assert_contains "validate: concurrent change detected" "validate slice dirty-to-dirty unstaged change"
+assert_contains "unstaged=yes" "validate slice dirty-to-dirty unstaged change"
+git -C "$slice_fixture" checkout -q -- file.txt
+
+export STUB_DOTNET_STAGE_ON=build
+export STUB_DOTNET_APPEND_PATH="$slice_fixture/file.txt"
+export STUB_DOTNET_STAGE_PATH=file.txt
+export STUB_DOTNET_REPO="$slice_fixture"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --csharp
+unset STUB_DOTNET_STAGE_ON STUB_DOTNET_APPEND_PATH STUB_DOTNET_STAGE_PATH STUB_DOTNET_REPO
+assert_exit 3 "validate slice staged change during run"
+assert_contains "validate: concurrent change detected" "validate slice staged change during run"
+restage_slice_change
+
+slice_before=$(git -C "$slice_fixture" rev-parse HEAD)
+export STUB_DOTNET_COMMIT_ON=test
+export STUB_DOTNET_REPO="$slice_fixture"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --csharp
+unset STUB_DOTNET_COMMIT_ON STUB_DOTNET_REPO
+assert_exit 3 "validate slice HEAD change during run"
+assert_contains "validate: concurrent change detected" "validate slice HEAD change during run"
+git -C "$slice_fixture" reset -q --hard "$slice_before"
+restage_slice_change
+
+export STUB_DOTNET_DIRTY_ON=test
+export STUB_DOTNET_DIRTY_PATH="$slice_fixture/concurrent.txt"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --csharp
+unset STUB_DOTNET_DIRTY_ON STUB_DOTNET_DIRTY_PATH
+assert_exit 3 "validate slice new untracked file during run"
+assert_contains "untracked=yes" "validate slice new untracked file during run"
+rm -f "$slice_fixture/concurrent.txt"
+
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 0 "validate slice checkpoint source"
+checkpoint_head=$(output_value commit)
+checkpoint_tree=$(output_value index_tree)
+git -C "$slice_fixture" commit -q -m "chore: complete slice fixture"
+
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" checkpoint \
+    --head "$checkpoint_head" --tree "$checkpoint_tree"
+assert_exit 0 "validate checkpoint"
+assert_contains "validate: checkpoint=verified" "validate checkpoint"
+assert_contains "validate: dirty=no" "validate checkpoint"
+
+parent_tree=$(git -C "$slice_fixture" rev-parse "$checkpoint_head^{tree}")
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" checkpoint \
+    --head "$checkpoint_head" --tree "$parent_tree"
+assert_exit 1 "validate checkpoint tree mismatch"
+assert_contains "does not match the validated snapshot" "validate checkpoint tree mismatch"
+
+dangling_head=$(git -C "$slice_fixture" commit-tree "$checkpoint_tree" -m "chore: dangling")
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" checkpoint \
+    --head "$dangling_head" --tree "$checkpoint_tree"
+assert_exit 1 "validate checkpoint lineage"
+assert_contains "not an ancestor of the checkpoint commit" "validate checkpoint lineage"
+
+printf 'checkpoint dirty\n' >> "$slice_fixture/file.txt"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" checkpoint \
+    --head "$checkpoint_head" --tree "$checkpoint_tree"
+assert_exit 1 "validate checkpoint dirty worktree"
+assert_contains "working tree is not clean" "validate checkpoint dirty worktree"
+git -C "$slice_fixture" checkout -q -- file.txt
+
+previous_commit=$(git -C "$slice_fixture" rev-parse HEAD~1)
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" checkpoint \
+    --head "$checkpoint_head" --tree "$checkpoint_tree" --commit "$previous_commit"
+assert_exit 1 "validate checkpoint non-head commit"
+assert_contains "must be the current HEAD" "validate checkpoint non-head commit"
+
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" checkpoint \
+    --tree "$checkpoint_tree"
+assert_exit 2 "validate checkpoint missing head"
+
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" targeted --test --build --build
+assert_exit 0 "validate targeted reversed duplicated flags"
+assert_check_order "restore build test " "validate targeted reversed duplicated flags"
+targeted_build_count=$(dotnet_command_count build)
+targeted_test_count=$(dotnet_command_count test)
+assert_equals "1" "$targeted_build_count" \
+    "validate targeted deduplicates build"
+assert_equals "1" "$targeted_test_count" \
+    "validate targeted runs one test"
+
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" targeted --docs --docs
+assert_exit 0 "validate targeted duplicate docs"
+assert_check_order "docs " "validate targeted duplicate docs"
+
+printf 'dirty\n' >> "$slice_fixture/file.txt"
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" full
+assert_exit 1 "validate full dirty tree"
+assert_contains "full validation requires a clean committed working tree" "validate full dirty tree"
+assert_not_contains "validate: check=restore result=running" "validate full dirty tree"
+git -C "$slice_fixture" checkout -q -- file.txt
+
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" full
+assert_exit 0 "validate full clean sequence"
+assert_check_order "restore format build test policy docs public-content workflow " \
+    "validate full clean sequence"
+assert_contains "validate: dirty=no" "validate full clean sequence"
+
+export STUB_DOTNET_DIRTY_ON=test
+export STUB_DOTNET_DIRTY_PATH="$slice_fixture/concurrent.txt"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" full
+unset STUB_DOTNET_DIRTY_ON STUB_DOTNET_DIRTY_PATH
+assert_exit 3 "validate full concurrent dirty change"
+assert_contains "validate: concurrent change detected" "validate full concurrent dirty change"
+rm -f "$slice_fixture/concurrent.txt"
+
+full_base=$(git -C "$slice_fixture" rev-parse HEAD)
+export STUB_DOTNET_COMMIT_ON=test
+export STUB_DOTNET_REPO="$slice_fixture"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" full
+unset STUB_DOTNET_COMMIT_ON STUB_DOTNET_REPO
+assert_exit 3 "validate full concurrent HEAD change"
+assert_contains "validate: concurrent change detected" "validate full concurrent HEAD change"
+git -C "$slice_fixture" reset -q --hard "$full_base"
 
 # --- Merge readiness ---------------------------------------------------------
 
@@ -957,6 +1304,65 @@ assert_exit 0 "cleanup ignored build output"
 assert_contains "cleanup: worktree=removed" "cleanup ignored build output"
 assert_contains "cleanup: result=pass" "cleanup ignored build output"
 assert_path_missing "$dirty_worktree" "cleanup ignored build output"
+
+# --- Cleanup safety: direct build-output removal failures -------------------
+
+removal_fixture="$fixture/output-removal"
+mkdir -p "$removal_fixture"
+git init -q "$removal_fixture"
+configure_repo "$removal_fixture"
+printf 'removal fixture\n' > "$removal_fixture/file.txt"
+git -C "$removal_fixture" add file.txt
+git -C "$removal_fixture" commit -q -m "chore: output removal fixture"
+printf 'bin/\n' >> "$removal_fixture/.git/info/exclude"
+
+removal_call="$fixture/remove-output.sh"
+cat > "$removal_call" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+source "$1/scripts/workflow/common.sh"
+workflow_remove_reproducible_output "$2"
+STUB
+chmod +x "$removal_call"
+
+mkdir -p "$removal_fixture/bin"
+printf 'generated\n' > "$removal_fixture/bin/output.dll"
+export STUB_GIT_FAIL_STATUS=ignored
+export STUB_GIT_FAIL_STATUS_PATH="$removal_fixture"
+run_at "$removal_fixture" "$removal_call" "$root" "$removal_fixture"
+unset STUB_GIT_FAIL_STATUS STUB_GIT_FAIL_STATUS_PATH
+assert_exit 2 "cleanup output removal ignored status failure"
+assert_path_exists "$removal_fixture/bin/output.dll" \
+    "cleanup output removal ignored status failure"
+
+real_rm=$(command -v rm)
+cat > "$fixture/bin/rm" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "${STUB_FAIL_RM_TARGET:-}" ]; then
+    for arg in "$@"; do
+        if [ "$arg" = "$STUB_FAIL_RM_TARGET" ]; then
+            exit 1
+        fi
+    done
+fi
+exec "${REAL_RM:?}" "$@"
+STUB
+chmod +x "$fixture/bin/rm"
+original_path=$PATH
+export PATH="$fixture/bin:$PATH"
+export REAL_RM="$real_rm"
+export STUB_FAIL_RM_TARGET="$removal_fixture/bin/output.dll"
+run_at "$removal_fixture" "$removal_call" "$root" "$removal_fixture"
+unset STUB_FAIL_RM_TARGET
+export PATH="$original_path"
+assert_exit 3 "cleanup output removal deletion failure"
+assert_path_exists "$removal_fixture/bin/output.dll" \
+    "cleanup output removal deletion failure"
+
+run_at "$removal_fixture" "$removal_call" "$root" "$removal_fixture"
+assert_exit 0 "cleanup output removal success"
+assert_path_missing "$removal_fixture/bin/output.dll" "cleanup output removal success"
 
 # --- Cleanup safety: local branch ancestry before any destructive step ------
 
@@ -1433,6 +1839,56 @@ assert_exit 1 "cleanup remote branch race"
 assert_contains "cleanup: blocked=remote_branch_delete_failed" "cleanup remote branch race"
 race_ref=$(git -C "$race_seed" ls-remote --heads origin chore/race-ws)
 assert_equals "$race_concurrent" "${race_ref%%[[:space:]]*}" "cleanup remote branch race"
+
+# --- Cleanup safety: unmerged or unverifiable remote branch tips ------------
+
+remote_retain_fixture="$fixture/remote-retain"
+fixture_output=$(make_merged_issue "$remote_retain_fixture" chore/remote-retain "remote retain work")
+IFS=$'\x1f' read -r remote_retain_seed remote_retain_head remote_retain_merge \
+    remote_retain_worktree <<< "$fixture_output"
+printf 'unmerged remote work\n' >> "$remote_retain_worktree/file.txt"
+git -C "$remote_retain_worktree" commit -q -am "feat: unmerged remote work"
+remote_unmerged_sha=$(git -C "$remote_retain_worktree" rev-parse HEAD)
+git -C "$remote_retain_worktree" push -q origin chore/remote-retain
+git -C "$remote_retain_worktree" reset -q --hard "$remote_retain_head"
+
+set_merged_pr 34 "$remote_retain_head" "$remote_retain_merge" chore/remote-retain
+set_paseo_workspace wks_remote_retain "$remote_retain_worktree"
+set_paseo_agents "[]"
+rm -f "$paseo_archived"
+: > "$paseo_log"
+
+run_at "$remote_retain_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 34 --verified-sha "$remote_retain_head" \
+    --workspace-id wks_remote_retain --worktree "$remote_retain_worktree" \
+    --main-worktree "$remote_retain_seed"
+assert_exit 1 "cleanup unmerged remote branch"
+assert_contains "cleanup: blocked=remote_branch_commits_not_merged" \
+    "cleanup unmerged remote branch"
+assert_contains "cleanup: remote_branch=retained reason=commits_not_merged" \
+    "cleanup unmerged remote branch"
+assert_contains "cleanup: result=blocked" "cleanup unmerged remote branch"
+assert_remote_branch_present "$remote_retain_seed" chore/remote-retain \
+    "cleanup unmerged remote branch"
+retained_ref=$(git -C "$remote_retain_seed" ls-remote --heads origin chore/remote-retain)
+assert_equals "$remote_unmerged_sha" "${retained_ref%%[[:space:]]*}" \
+    "cleanup unmerged remote branch tip"
+
+set_merged_pr 34 "$remote_retain_head" "$remote_retain_merge" chore/remote-retain
+export STUB_GIT_FAIL_ANCESTRY_SHA="$remote_unmerged_sha"
+run_at "$remote_retain_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 34 --verified-sha "$remote_retain_head" \
+    --workspace-id wks_remote_retain --worktree "$remote_retain_worktree" \
+    --main-worktree "$remote_retain_seed"
+unset STUB_GIT_FAIL_ANCESTRY_SHA
+assert_exit 1 "cleanup remote ancestry query failure"
+assert_contains "cleanup: blocked=remote_branch_ancestry_failed" \
+    "cleanup remote ancestry query failure"
+assert_contains "cleanup: remote_branch=retained reason=ancestry_failed" \
+    "cleanup remote ancestry query failure"
+assert_contains "cleanup: result=blocked" "cleanup remote ancestry query failure"
+assert_remote_branch_present "$remote_retain_seed" chore/remote-retain \
+    "cleanup remote ancestry query failure"
 
 # --- Cleanup safety: unavailable or malformed state -------------------------
 

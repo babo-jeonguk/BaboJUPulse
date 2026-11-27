@@ -66,6 +66,8 @@ but the reviewed SHA and decision are always required.
 | --- | --- | --- | --- |
 | <gate> | `<command>` or `<CI run>` | Pass / Fail / Not run | `<head SHA>` |
 
+- **Slice checkpoints:** `<validated head> -> <checkpoint SHA> (<validated tree>)`, or a reason none were recorded
+- **Full validation:** `<command or run>` applied to `<head SHA>`
 - **Working tree during review:** Clean / Dirty and explained
 - **Review range reproducible:** Yes / No
 

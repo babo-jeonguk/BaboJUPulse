@@ -25,8 +25,10 @@ The exact quality-gate commands are in [Development](../development.md#quality-g
 
 [`scripts/workflow/`](../../scripts/workflow/) is the deterministic entry point for workspace preparation, validation, merge inspection and execution, and cleanup. It sequences the existing gates; it does not replace or weaken them.
 
-- `validate.sh full` runs restore, format, build, tests, repository-policy tests, documentation, public content, ShellCheck, and workflow-script tests.
-- `validate.sh targeted` runs only the named checks after a slice. `--workflow` runs ShellCheck and the workflow-script tests.
+- `validate.sh slice --csharp|--config|--workflow|--docs` validates a completed slice from a staged snapshot. Profiles may be combined for a mixed change; public content is always included.
+- `validate.sh checkpoint --head <sha> --tree <tree>` verifies that the committed checkpoint matches the validated snapshot, descends from the validated starting HEAD, and has a clean worktree.
+- `validate.sh full` runs restore, format, build, tests, repository-policy tests, documentation, public content, ShellCheck, and workflow-script tests from a clean committed worktree.
+- `validate.sh targeted` runs only the named checks for iteration. `--workflow` runs ShellCheck and the workflow-script tests.
 - `validate.sh docs` runs documentation and public-content checks only.
 - `validate.sh range` verifies and prints a review range.
 - `merge.sh` separates read-only inspection from execution and requires the explicit verified SHA. It does not decide whether a review finding is acceptable.
@@ -34,7 +36,46 @@ The exact quality-gate commands are in [Development](../development.md#quality-g
 
 `scripts/check-workflow-shell.sh` runs ShellCheck over `scripts/workflow/*.sh` and `scripts/test-workflow.sh` with source following and the optional `check-extra-masked-returns` check for masked exit statuses (SC2312). SC2310 was evaluated and is intentionally not enabled because the workflow helpers are invoked in conditions and return explicit statuses. `scripts/test-workflow.sh` supplies synthetic Git repositories and stubbed GitHub/Paseo commands. Both run locally and in the documentation workflow. A change to a workflow script needs its test coverage and review; do not treat the script's convenience as a reason to skip the underlying gate. Missing `jq` or ShellCheck is an explicit dependency failure, not a skipped check.
 
-A validation result applies only to the commit it names. `validate.sh` exits with status 3 when HEAD or the working tree changes during the run, because the evidence may no longer describe the inspected state. A merge script result is mechanical evidence, not an architecture approval or a substitute for authorized engineering judgment.
+A validation result applies only to the snapshot it names. `validate.sh` exits with status 3 when the inspected HEAD, index tree, or working tree changes during the run, because the evidence may no longer describe the inspected state. A merge script result is mechanical evidence, not an architecture approval or a substitute for authorized engineering judgment.
+
+## Slice completion validation
+
+A slice is complete only when its verified changes are committed on the issue branch and the resulting clean checkpoint SHA is confirmed. `validate.sh slice` is the completion gate; `validate.sh targeted` is iteration help and is not completion evidence. Independent review still happens after all slices and full validation.
+
+Select every profile that describes the change. The profiles are deliberately coarse and do not implement a change-impact engine. `validate.sh slice` rejects an omitted profile when the staged paths are an obvious C# (`.cs`), workflow shell, documentation (`.md`), or build/configuration file type. That guard does not identify every affected behavior; the implementation agent remains responsible for adding an affected check when the profile is insufficient.
+
+| Change type | Profile | Required checks |
+| --- | --- | --- |
+| C# production or test code | `--csharp` | format, build, tests, public content |
+| Dependency, build, or configuration | `--config` | restore, format, build, tests, repository policy, public content |
+| Workflow shell | `--workflow` | ShellCheck, workflow-script tests, public content |
+| Documentation | `--docs` | documentation checks, public content |
+| Mixed | union of the applicable profiles | union, plus public content |
+
+At least one profile is required; an empty selection or unknown flag is a usage error. Repeated profiles are deduplicated. Checks run in a fixed order: restore, format, build, test, policy, docs, public content, workflow.
+
+Tests and policy checks require a successful fresh build in the same validation run, and format or build requires restore. A failed or unavailable prerequisite marks its dependent checks skipped and fails the run; a stale test binary is never used. This applies to slice, targeted, and full modes.
+
+Slice evidence is bound to the exact staged source snapshot:
+
+1. Stage only the intended slice. Do not stage unrelated content.
+2. Run `scripts/workflow/validate.sh slice <profiles>`. The command requires the worktree to match the index and no non-ignored untracked files, and records the starting HEAD and index tree.
+3. It rechecks HEAD, the index tree, unstaged changes, and non-ignored untracked files after the checks. A query failure or any change exits with status 3 and is not a valid completion result. Ignored generated build output stays outside the checkpoint.
+4. If a required check fails, fix the cause and rerun. Do not suppress the diagnostic or narrow the gate independently.
+5. Commit the verified snapshot, then confirm the checkpoint:
+
+   ```bash
+   git commit
+   scripts/workflow/validate.sh checkpoint \
+     --head <validated-head> \
+     --tree <validated-tree>
+   ```
+
+`checkpoint` requires a clean worktree, the current HEAD to be the checkpoint commit, the commit tree to equal the validated tree, and the validated starting HEAD to be an ancestor of the checkpoint. A tree, lineage, or state mismatch requires revalidation before the next slice.
+
+The pre/post comparisons detect edits made during the run; they cannot prove that nothing was edited and then reverted. Do not edit the worktree while validation is running.
+
+Full validation is separate. `validate.sh full` must start and end with a clean, committed worktree and the same HEAD, and it runs every existing gate in that one run. A pre-commit slice result is not full validation of the final commit. Repeat full validation whenever the final implementation commit changes, as required by review and merge policy.
 
 
 ## Enforcement coverage
@@ -199,6 +240,8 @@ A repository-controlled guard is **not tamper-proof**. An agent with permission 
 - The null-forgiving check rejects the operator; it does not prove that every other nullable annotation or nullability contract is honest.
 - An agent that can edit both code and validation can weaken a repository-controlled check. Maintainer review is required for any change to `.editorconfig`, `Directory.Build.props`, `BannedSymbols.txt`, `CodeMetricsConfig.txt`, the policy tests, `scripts/check-public-content.sh`, `scripts/check-documentation.sh`, or the workflows under `.github/workflows/`.
 - The workflow scripts are mechanical aids. They do not decide whether an architecture change is acceptable, whether a review finding is valid, or whether a documentation-only delta is substantive.
+- Slice profiles are coarse change-type selectors, not a complete change-impact analysis. The implementation agent must add an affected check when a profile does not cover the change.
+- Slice and full pre/post state checks detect concurrent edits, index changes, untracked files, and HEAD changes during validation. They cannot prove that content was not edited and reverted between the checks.
 - ShellCheck covers `scripts/workflow/*.sh` and `scripts/test-workflow.sh` only. It does not lint the documentation, public-content, setup, or other repository scripts.
 - Workflow Paseo parsing requires `jq`, and workflow linting requires ShellCheck. Missing dependencies fail explicitly; they are not silently skipped.
 - `merge.sh` reads the PR head and check results at the moment it runs. A head change after inspection blocks the merge, but the script cannot prevent a concurrent GitHub-side change after it passes the verified SHA.

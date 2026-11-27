@@ -1,6 +1,6 @@
 # Code review
 
-Authoritative for independent review of an implemented change. Remediation lives in [Review remediation](review-remediation.md); loop limits and escalation live in [Development workflow](development-workflow.md); coding rules live in [Coding standards](../../CODING_STANDARDS.md); verification policy lives in [Quality gates](quality-gates.md).
+Authoritative for independent review of an implemented change. Remediation lives in [Review remediation](review-remediation.md); loop limits and escalation live in [Development workflow](development-workflow.md); coding rules live in [Coding standards](../../CODING_STANDARDS.md); verification policy lives in [Quality gates](quality-gates.md); the output format lives in the [review report template](templates/review-report.md).
 
 ## Purpose
 
@@ -26,13 +26,10 @@ Evaluate the actual change against the issue specification and the repository's 
 ### 1. Fix the review range
 
 ```bash
-git fetch origin
-git diff --stat <base-sha>...<head-sha>
-git log --oneline <base-sha>..<head-sha>
-git diff <base-sha>...<head-sha>
+scripts/workflow/validate.sh range --base <base-sha> --head <head-sha>
 ```
 
-Review the committed range, not an uncommitted working tree. If the head changes during review, restart or explicitly review the new range.
+The script refreshes `origin`, confirms both commits exist and that the base is an ancestor of the head, then prints the commit count and diffstat. Use `git diff <base>...<head>` and `git log --oneline <base>..<head>` for the full change. Review the committed range, not an uncommitted working tree. If the head changes during review, run the range check again and review the new range.
 
 ### 2. Check specification conformance
 
@@ -52,37 +49,45 @@ For each acceptance criterion, determine whether the change satisfies it and whe
 - Error handling at the correct boundary and secret-safe messages.
 - Security and privacy, including credentials, logs, and local-only artifacts.
 - Tests: do they exercise the behavior, the failure path, and the regression?
+- Domain language: does the implementation and test vocabulary match the issue and [GLOSSARY.md](../../GLOSSARY.md), without asserting unverified relationships?
 - Duplication, unnecessary abstraction, and unrelated refactoring.
 - Quality-gate integrity: no unauthorized suppression, analyzer change, or CI weakening.
 
 ### 4. Write actionable findings
 
-Every actionable finding includes:
+Use the [review report template](templates/review-report.md). Give every actionable finding a stable identifier such as `B1` or `N1` so later rounds, remediation, and the PR can refer to the same item. Each finding includes:
 
+- **Identifier**: a stable ID that does not change when the finding is discussed again.
 - **Severity**: blocking or non-blocking.
 - **Location**: file and line or a precise symbol.
 - **Evidence**: the code or behavior that demonstrates the problem.
 - **Rule or requirement**: the acceptance criterion, coding standard, architecture rule, or gate policy affected.
+- **Impact**: the failure scenario or why the change cannot be accepted.
 - **Expected correction or verification**: what would resolve it.
 
 A blocking finding is a correctness defect, a missed acceptance criterion, a security or privacy problem, an architectural violation, an unauthorized gate change, or a test gap that could hide a real failure. A style preference or optional improvement is non-blocking.
 
-Do not use "nit" as a substitute for a clear severity. Do not require unrelated cleanup as a condition of approval.
+Do not use "nit" as a substitute for a clear severity. Do not require unrelated cleanup as a condition of approval. A review with no findings records "None" and does not invent filler.
+
+The completed template may be the session output. Store it under the local-only workspace only when a separate session genuinely needs it; the PR must remain understandable without that file. See [GitHub operations](github-operations.md#artifact-ownership).
 
 ### 5. Verify claims independently
 
-Run the commands needed to confirm the important claims. At minimum, inspect that the reported checks correspond to the head commit. Do not accept a build result as evidence of Windows runtime behavior.
+Run the commands needed to confirm the important claims. Use `scripts/workflow/validate.sh full` or a targeted mode when only part of the suite applies. At minimum, inspect that the reported checks correspond to the head commit. A result reported for another commit is not evidence for this review. Do not accept a build result as evidence of Windows runtime behavior.
 
 ### 6. Record the decision
 
-The review output states:
+Use the [review report template](templates/review-report.md). The review output states:
 
 - **Decision**: approve, or request changes.
+- **Issue and base SHA**: the specification and review range.
 - **Reviewed commit**: the exact full SHA.
-- **Blocking findings**: count and summary.
-- **Non-blocking findings**: optional improvements.
-- **Evidence inspected**: commands, test results, or CI runs actually checked.
+- **Acceptance-criteria coverage**: satisfied, not satisfied, not applicable, or unverified, with evidence.
+- **Blocking findings**: stable IDs, count, and summary.
+- **Non-blocking findings**: optional improvements with stable IDs.
+- **Verification performed**: commands, test results, or CI runs actually checked and the commit they apply to.
 - **Unverified areas**: behavior that could not be verified in this environment.
+- **Required next action**: re-review the new head or proceed to the PR stage.
 
 Approval applies only to the named commit. It does not approve a later commit, a rebased branch, or an unrecorded edit, except for the narrow documentation-only delta described below.
 
@@ -142,9 +147,10 @@ If production code, executable configuration, dependencies, tests, scripts, or q
 
 ## Required outputs
 
-- A review report with the reviewed SHA and decision.
-- Blocking and non-blocking findings in the required format.
-- Evidence inspected and unverified areas.
+- A review report in the [review report template](templates/review-report.md) with the reviewed SHA and decision.
+- Acceptance-criteria coverage with evidence.
+- Blocking and non-blocking findings with stable identifiers.
+- Verification performed, the commit it applies to, and unverified areas.
 - A clear handoff to remediation when changes are requested.
 - For a documentation-only follow-up, the approved implementation SHA, final head, delta, validation result, and reason no re-review was required.
 
@@ -169,8 +175,10 @@ If production code, executable configuration, dependencies, tests, scripts, or q
 ## References
 
 - [Development workflow](development-workflow.md) for the overall sequence.
+- [Review report template](templates/review-report.md) for the output format.
 - [Implementation](implementation.md) for the preceding stage.
 - [Review remediation](review-remediation.md) for the following stage.
 - [Coding standards](../../CODING_STANDARDS.md), [architecture](../architecture.md), [ADRs](../adr/), and [quality gates](quality-gates.md) for review criteria.
-- [Development](../development.md#documentation-validation) for the documentation validation commands.
+- [GLOSSARY.md](../../GLOSSARY.md) and [domain guidance](domain.md) for canonical terminology.
+- [Development](../development.md#quality-gates) for validation commands and [workflow scripts](../development.md#workflow-scripts) for range and validation entry points.
 - [GitHub operations](github-operations.md) for review publication and local-only artifact policy.

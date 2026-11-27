@@ -25,7 +25,9 @@ Closes #
 - **Reviewed implementation commit:** `<full SHA>`
 - **Final PR head:** `<full SHA>`
 - **Review outcome:** Approved / Changes requested / Not yet reviewed
-- **Blocking findings:** None / list each finding and its resolution
+- **Review report:** <link to PR review or summarize the template fields>
+- **Blocking findings:** None / list each finding ID and its resolution
+- **Non-blocking findings:** None / list each finding ID and its disposition
 - **Documentation-only delta after approval:** None / `<approved SHA>..<final SHA>` and changed files
 - **Documentation validation:** `bash scripts/check-documentation.sh` / CI run / not applicable
 - **Reason independent re-review was not required:** None / explain why the complete delta contains no production code, executable configuration, dependency, test, quality-gate, or substantive policy change
@@ -43,6 +45,7 @@ Closes #
 | Repository policy | `dotnet test ... --filter "Category=RepositoryPolicy"` |  |
 | Documentation | `bash scripts/test-check-documentation.sh` and `bash scripts/check-documentation.sh` |  |
 | Public content | `bash scripts/test-public-content.sh` and `bash scripts/check-public-content.sh --tracked` |  |
+| Workflow scripts | `bash scripts/test-workflow.sh` |  |
 
 - **Not applicable:**
 - **Unverified:** Include Windows runtime behavior that was not exercised.
@@ -78,6 +81,8 @@ Closes #
 - [ ] The documentation freshness review is recorded (inspected, updated, unchanged, remaining concerns).
 - [ ] The Merge Danger assessment is proportionate and records any required maintainer decision.
 - [ ] Behavior changes have tests; a bug fix has a regression test.
+- [ ] Domain terminology and relationships match `GLOSSARY.md`, or an unresolved conflict is recorded.
 - [ ] No diagnostic suppression or quality-gate change was self-authorized. Any approved exception is in a separate PR.
 - [ ] No credentials, tokens, account data, local absolute paths, workspace identifiers, session data, or references to local-only artifacts are included.
+- [ ] The review record is understandable without a local report or inaccessible artifact.
 - [ ] `bash scripts/check-public-content.sh` was run on this title and body.

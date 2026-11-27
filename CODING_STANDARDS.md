@@ -9,12 +9,29 @@ These rules apply to every change in this repository. They are review criteria, 
 | Restore | `dotnet restore BaboJUPulse.slnx` | Package source pinning and transitive NuGet audits |
 | Formatting | `dotnet format BaboJUPulse.slnx --verify-no-changes` | Whitespace, using order, style rules configured in `.editorconfig` |
 | Build | `dotnet build BaboJUPulse.slnx -c Release -warnaserror` | Compiler errors, nullable warnings, .NET analyzers, code-style analyzers |
-| Tests | `dotnet test BaboJUPulse.slnx -c Release` | Behavior contracts and repository invariants |
+| Tests | `dotnet test BaboJUPulse.slnx -c Release` | Behavior, repository, and configuration invariants |
 | CI | `.github/workflows/ci.yml` | The same gates on `windows-latest` |
 | CodeQL | `.github/workflows/codeql.yml` | Security-relevant data flow and API misuse |
 | Dependency review | `.github/workflows/dependency-review.yml` | New dependencies with known vulnerabilities or disallowed licenses |
 
-Warnings are errors. A rule is not satisfied by adding `#pragma warning disable`, `SuppressMessage`, `NoWarn`, or an `.editorconfig` severity override. If a rule genuinely does not apply, change the rule in its own PR with a written reason and the narrowest possible scope.
+Warnings are errors. A narrow suppression for a genuine false positive is allowed under [Suppressions and exceptions](#suppressions-and-exceptions). A project-wide analyzer or quality-gate change needs its own PR; weakening a gate needs an ADR and maintainer approval. Suppressing a warning merely to pass CI is prohibited.
+
+### Enforcement coverage
+
+| Area | Automated now | Remaining manual or deferred |
+| --- | --- | --- |
+| Formatting, style, naming | `dotnet format` and IDE analyzers | Judgment about whether a name or layout is clear |
+| Nullability and type safety | Compiler nullable analysis | Avoiding `dynamic`, reflection, and dishonest annotations |
+| Blocking waits and selected unsafe APIs | `BannedApiAnalyzers` with `BannedSymbols.txt` | Synchronous I/O that is not in the banned list |
+| Async correctness | `CA1849`, `CA2012`, `CA2016`, banned blocking waits | `async void`, fire-and-forget, and ownership of background work |
+| Resource ownership | `CA1001`, `CA1063`, `CA1816`, `CA2000`, `CA2213` | Event unsubscription and native handle lifetime |
+| Exception handling | `CA1031`, `CA2201` | Error-message quality and the correct boundary for a failure |
+| Complexity and coupling | `CA1502` and configured `CA1506` thresholds | God classes, method length, and whether an abstraction earns its keep |
+| Architecture boundaries and cycles | Repository configuration tests; compiler rejects project-reference cycles | Namespace cycles and domain/UI/provider dependency direction until separate assemblies exist; then ArchUnitNET |
+| Duplication | None | Review; introduce a focused analyzer only after a recurring failure |
+| Security | CodeQL, NuGet audit, dependency review, secret scanning, banned TLS/process APIs | Threat modeling, credential handling, and data-flow review |
+
+The table records coverage, not permission to ignore a manual rule. A rule that is not automated is still a review requirement.
 
 ## Architecture and separation of concerns
 
@@ -32,7 +49,7 @@ The target boundaries are described in [Architecture](docs/architecture.md). The
 
 - Use the .NET base class library first. Add a package only when it removes meaningful risk or work, not to save a few lines.
 - Restore only from the source pinned in `NuGet.config`. Do not add a machine-level or user-level package source to make a build work.
-- Every new package needs a reason in the PR: what it replaces, its maintenance status, its license, and its security surface.
+- Every new direct package added by a change, rather than an automated version bump, needs a reason in the PR: what it replaces, its maintenance status, its license, and its security surface.
 - Pin versions centrally when the first shared package appears. Do not let projects drift to different versions of the same package.
 - Do not depend on transitive packages directly. Add the direct reference or use the BCL type.
 - Prefer packages with a public source repository, a clear release history, and a compatible license. Do not add a package with an unknown maintainer for a security-sensitive task.
@@ -98,11 +115,12 @@ Follow the [.NET naming guidelines](https://learn.microsoft.com/dotnet/standard/
 
 - Apply the rule of three: tolerate a small duplication until the third real use, then extract the shared concept. Do not extract on the second use merely because the lines look similar.
 - Do not create a generic abstraction for one provider, one metric, or one screen. Name the concrete thing first.
-- Keep methods short enough to read without scrolling. Prefer an early return over nested conditionals.
+- Keep methods short enough to read without scrolling. `CA1502` rejects excessive cyclomatic complexity at its analyzer default. `CA1506` rejects a type with more than 40 referenced types or a method with more than 20; the thresholds are in `CodeMetricsConfig.txt`. These are backstops, not a design goal.
 - Avoid god classes, manager classes, and `Helper`/`Utils` dumping grounds. Put behavior on the type that owns the data.
 - Do not add layers that only forward calls. A view model that only exposes a service, or a repository that only wraps another repository, is noise.
 - Prefer explicit code over reflection, dynamic dispatch, and convention-based magic. The next reader should be able to follow the call path.
 - Delete dead code. Do not keep commented-out implementations or unused extension points "for later".
+- Duplication is reviewed manually. Do not add a broad analyzer for it until a repeated, concrete failure justifies the maintenance cost; see [ADR-0002](docs/adr/0002-static-analysis-and-architecture-enforcement.md).
 
 ## WPF and Windows specifics
 
@@ -131,14 +149,39 @@ Follow the [.NET naming guidelines](https://learn.microsoft.com/dotnet/standard/
 
 ## Suppressions and exceptions
 
-A suppression is allowed only when all of these are true:
+There are three different actions. Do not treat them as the same:
 
-1. The rule is a false positive for this exact code, not an inconvenience.
-2. The suppression is the narrowest form available (line-level, not project-wide).
-3. A comment states why the code is safe.
-4. The PR description calls out the suppression and the alternative considered.
+### Narrow, justified suppression
 
-Project-wide `NoWarn`, disabling nullable, lowering `AnalysisLevel`, excluding files from analyzers, or turning off a CI step is not a normal change. Treat it as an architecture decision and document it in an ADR.
+A line-level or member-level suppression is acceptable only when all of these are true:
+
+1. The diagnostic is a genuine false positive for this exact code, not an inconvenience.
+2. The suppression is the narrowest form available: `#pragma warning disable`/`restore` around the specific line, or a member-level `[SuppressMessage]` with `Justification`.
+3. The justification is in the code and names the diagnostic and why the code is safe.
+4. The PR description records the diagnostic ID, the scope, and the alternative considered.
+5. The suppression does not hide a real defect, a failing test, or an unhandled resource leak.
+
+A narrow suppression for a documented false positive is reviewed like any other code. It is not a quality-gate change.
+
+### Project-wide configuration change
+
+Changing `.editorconfig`, `Directory.Build.props`, `BannedSymbols.txt`, an analyzer package, or a CI gate changes the rules for everyone. It needs its own PR with:
+
+- The diagnostic or gate being changed and the concrete problem it causes.
+- Evidence that the change does not reduce coverage for an existing class of defect.
+- The scope of the change and the files affected.
+
+Strengthening a gate is normal maintenance. Weakening it is not.
+
+### Weakening a quality gate
+
+Removing a banned symbol, lowering a severity, disabling an analyzer, adding project-wide `NoWarn`, disabling nullable, lowering `AnalysisLevel`, excluding files from analysis, or removing a CI step is a weakening. It requires:
+
+- A separate PR, never bundled with a feature or bug fix.
+- An ADR that records why the gate is wrong or impractical, what replaces it, and what risk is accepted.
+- Maintainer approval.
+
+Suppressing a warning merely to make CI pass is prohibited. If the warning is real, fix the code or change the design. If CI is wrong, fix the gate through the process above.
 
 ## Review checklist
 
@@ -150,4 +193,4 @@ Project-wide `NoWarn`, disabling nullable, lowering `AnalysisLevel`, excluding f
 - [ ] Disposable resources, timers, events, and native handles have an owner and a release path.
 - [ ] Tests cover the new behavior and the important failure path.
 - [ ] `dotnet format`, build, and tests pass locally; CI passes on the final commit.
-- [ ] No quality gate, warning, or test was weakened to make the change pass.
+- [ ] Any suppression is narrow, justified, and disclosed; no project-wide gate was weakened.

@@ -23,7 +23,7 @@ WSL or Linux:
 ./scripts/setup-dev.sh
 ```
 
-Both scripts set `core.hooksPath` to `.githooks` and restore the solution. The hook enforces Conventional Commits at commit time.
+Both scripts set `core.hooksPath` to `.githooks` and restore the solution. The hook enforces Conventional Commits at commit time in that clone. It is a local convenience, not a server-side guarantee: a contributor who has not run setup, or who uses `--no-verify`, is not stopped by it.
 
 ## Build and run
 
@@ -49,14 +49,28 @@ dotnet test BaboJUPulse.slnx -c Release --no-build
 | --- | --- |
 | `dotnet restore` | Package source pinning and transitive NuGet auditing |
 | `dotnet format --verify-no-changes` | The tree matches `.editorconfig`; no formatting drift |
-| `dotnet build -warnaserror` | Compiler, nullable, .NET analyzer, and code-style analyzer checks pass |
-| `dotnet test` | Behavior and repository-invariant tests pass |
+| `dotnet build -warnaserror` | Compiler, nullable, style, banned-API, complexity, and coupling checks pass |
+| `dotnet test` | Behavior and repository/configuration invariant tests pass |
 
-Do not run `dotnet format` without `--verify-no-changes` on unrelated files. If formatting is needed, format only the files you changed and review the diff.
+Do not format unrelated files. When formatting is needed, format only the files you changed and review the diff.
+
+## Enforcement layers
+
+| Layer | Scope | What it guarantees |
+| --- | --- | --- |
+| Local `commit-msg` hook | Clones that configured `core.hooksPath` | Conventional Commits and subject length |
+| Agent instructions (`AGENTS.md`, `CODING_STANDARDS.md`) | Agents working in the repository | Guidance and review expectations; not enforcement |
+| CI `build` | Every push to `main`, every PR, manual runs | Restore audit, formatting, warnings-as-errors build, tests |
+| CodeQL | `main` pushes, PRs, weekly schedule | C# security analysis; currently advisory |
+| Dependency review | PRs | High-severity vulnerability and strong-copyleft dependency gate; not currently a required check |
+| Branch protection | Server-side on `main` | PR required, `build` required, up-to-date branch, resolved conversations, no force push or deletion |
+| Secret scanning and push protection | Server-side | Blocks known secrets in commits and pushes |
+
+Local hooks and agent instructions do not replace server-side rules. A rule that must hold for every contributor belongs in CI or branch protection.
 
 ## Tests
 
-- `tests/BaboJUPulse.ArchitectureTests/` protects repository invariants: target framework, no startup window, quality-gate settings, relative documentation links, and `.scratch/` being ignored.
+- `tests/BaboJUPulse.ArchitectureTests/` currently protects repository and configuration invariants: target framework, no startup window, quality-gate settings, relative documentation links, and `.scratch/` being ignored. These are not yet cross-assembly dependency tests; the trigger for those is in [ADR-0002](adr/0002-static-analysis-and-architecture-enforcement.md).
 - Product tests belong in the layer that owns the behavior. Add a test project when the first product behavior exists; do not create a broad test pyramid in advance.
 - A bug fix needs a regression test that fails before the fix.
 - Tests must not depend on machine load, GPU presence, network access, locale, or wall-clock time.
@@ -95,7 +109,7 @@ A PR is ready when:
 - The final commit passes formatting, build, and tests.
 - New behavior has tests, and a bug fix has a regression test.
 - The PR body states what was verified and what was not.
-- No quality gate, warning, suppression, or test was weakened.
+- Any suppression is narrow, justified, and disclosed; no project-wide gate was weakened. Follow [the suppression policy](../CODING_STANDARDS.md#suppressions-and-exceptions) for a suppression or analyzer change.
 
 CI runs on `windows-latest`. A green local run on Linux is necessary but not sufficient for runtime behavior; Windows-specific changes need Windows validation or a CI run.
 
@@ -103,7 +117,7 @@ CI runs on `windows-latest`. A green local run on Linux is necessary but not suf
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
-| `CI` | Push to `main`, every PR, manual | Format, build, test on Windows |
+| `CI` | Push to `main`, every PR, manual | Restore audit, format, build (including analyzers), test on Windows |
 | `CodeQL` | Push to `main`, PRs, weekly schedule | C# security analysis |
 | `Dependency review` | PRs | Reject new dependencies with known vulnerabilities or disallowed licenses |
 
@@ -116,6 +130,8 @@ The `CI` workflow is the required status check for `main`. CodeQL is currently a
 - Only merge commits are allowed. Squash and rebase merges are disabled, and head branches are deleted after merge.
 - Auto-merge is enabled so a PR can merge once the required check passes.
 - Secret scanning, push protection, Dependabot alerts, and Dependabot security updates are enabled. Private vulnerability reporting is enabled through [SECURITY.md](../SECURITY.md).
+- Secret scanning non-provider patterns and validity checks are not enabled on the current GitHub plan. Do not describe them as active controls.
+- The default Actions token is read-only. Actions may use any action, and commit-SHA pinning is not enforced; workflows use major version tags and Dependabot updates them weekly.
 - Repository administrators are subject to the protection rules. A temporary protection change is an explicit maintenance action, not a way to land a feature.
 
 ## Windows-specific validation

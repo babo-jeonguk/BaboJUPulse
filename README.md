@@ -57,7 +57,7 @@ dotnet build BaboJUPulse.slnx -c Release --no-restore -warnaserror
 dotnet test BaboJUPulse.slnx -c Release --no-build
 ```
 
-CI runs the same gates on `windows-latest`. Warnings are errors, nullable reference types are enabled, formatting is verified rather than auto-applied, and restore audits direct and transitive packages.
+CI runs the same gates on `windows-latest`. Warnings are errors, nullable reference types are enabled, formatting is verified rather than auto-applied, and restore audits direct and transitive packages. Selected analyzers reject blocking waits, dispatcher blocking, TLS validation bypass, arbitrary command strings, and excessive complexity or coupling. The tool decisions are recorded in [ADR-0002](docs/adr/0002-static-analysis-and-architecture-enforcement.md).
 
 ## Documentation
 

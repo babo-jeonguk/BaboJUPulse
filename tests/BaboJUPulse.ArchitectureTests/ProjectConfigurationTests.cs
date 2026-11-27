@@ -31,7 +31,11 @@ public sealed class ProjectConfigurationTests
         Assert.Equal("enable", Value(props, "Nullable"));
         Assert.Equal("true", Value(props, "TreatWarningsAsErrors"));
         Assert.Equal("true", Value(props, "EnforceCodeStyleInBuild"));
+        Assert.Equal("latest-recommended", Value(props, "AnalysisLevel"));
+        Assert.Equal("true", Value(props, "EnableNETAnalyzers"));
         Assert.Equal("true", Value(props, "CodeAnalysisTreatWarningsAsErrors"));
+        Assert.Equal("true", Value(props, "NuGetAudit"));
+        Assert.Equal("all", Value(props, "NuGetAuditMode"));
         Assert.Equal("true", Value(props, "EnableWindowsTargeting"));
     }
 

@@ -8,6 +8,8 @@ public sealed class CiWorkflowTests
         var workflow = File.ReadAllText(
             Path.Combine(RepositoryPaths.Root, ".github", "workflows", "ci.yml"));
 
+        Assert.Contains("pull_request:", workflow, StringComparison.Ordinal);
+        Assert.Contains("name: build", workflow, StringComparison.Ordinal);
         Assert.Contains("runs-on: windows-latest", workflow, StringComparison.Ordinal);
         Assert.Contains("contents: read", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet restore BaboJUPulse.slnx", workflow, StringComparison.Ordinal);

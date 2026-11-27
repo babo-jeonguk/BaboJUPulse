@@ -19,8 +19,9 @@
 #                              Use only when its unavailability is recorded and a
 #                              local equivalent was verified; a failing check or
 #                              the mandatory build check is never allowed.
-#   --delete-branch            Also request branch deletion. Prefer cleanup.sh,
-#                              which verifies merge ancestry first.
+#
+# Branch deletion is not part of this command; cleanup.sh verifies ancestry
+# before deleting anything.
 #
 # Exit codes: 0 ready/merged, 1 blocked or failed, 2 usage error.
 set -euo pipefail
@@ -30,13 +31,13 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 source "$script_dir/common.sh"
 
 usage() {
-    sed -n '2,25p' "${BASH_SOURCE[0]}"
+    sed -n '2,26p' "${BASH_SOURCE[0]}"
 }
 
 pr=""
 verified_sha=""
 repository=""
-delete_branch=no
+verified_repository=""
 require_checks=(build documentation)
 allow_missing_checks=()
 mandatory_checks=(build)
@@ -49,7 +50,6 @@ parse_args() {
             --repository) workflow_option_value "$@"; repository=$2; shift 2 ;;
             --require-check) workflow_option_value "$@"; require_checks+=("$2"); shift 2 ;;
             --allow-missing-check) workflow_option_value "$@"; allow_missing_checks+=("$2"); shift 2 ;;
-            --delete-branch) delete_branch=yes; shift ;;
             -h|--help) usage; exit 0 ;;
             *) workflow_usage_error "unknown argument: $1" ;;
         esac
@@ -74,9 +74,10 @@ evaluate() {
     workflow_require_bin GH_BIN "$GH_BIN"
     local actual_repository
     actual_repository="$(workflow_github_repository "$repository")"
+    verified_repository=$actual_repository
 
     local record
-    record=$("$GH_BIN" pr view "$pr" \
+    record=$("$GH_BIN" pr view "$pr" --repo "$actual_repository" \
         --json number,state,isDraft,baseRefName,headRefOid,headRefName,headRepositoryOwner,headRepository,mergeable,mergeStateStatus,url \
         --jq '[.number, .state, .isDraft, .baseRefName, .headRefOid, .headRefName, (.headRepositoryOwner.login // ""), (.headRepository.name // ""), (.mergeable // ""), (.mergeStateStatus // ""), (.url // "")] | join("\u001f")' 2>/dev/null) \
         || workflow_die "could not read pull request #$pr" 1
@@ -120,16 +121,12 @@ evaluate() {
             blocked=1
             ;;
     esac
-    if [ "$delete_branch" = yes ] && [ "$actual_repository" != "$head_owner/$head_repo" ]; then
-        printf 'merge: condition=same_repository result=fail; a fork branch must not be deleted by the merge\n' >&2
-        blocked=1
-    fi
 
     local checks_output
     local checks_code=0
     local checks_readable=1
     set +e
-    checks_output=$("$GH_BIN" pr checks "$pr" --json name,state,bucket \
+    checks_output=$("$GH_BIN" pr checks "$pr" --repo "$actual_repository" --json name,state,bucket \
         --jq '.[] | [.name, .state, .bucket] | join("\u001f")' 2>/dev/null)
     checks_code=$?
     set -e
@@ -200,16 +197,13 @@ main() {
         execute)
             parse_args "$@"
             evaluate || exit 1
-            local args=(pr merge "$pr" --merge --match-head-commit "$verified_sha")
-            if [ "$delete_branch" = yes ]; then
-                args+=(--delete-branch)
-            fi
+            local args=(pr merge "$pr" --repo "$verified_repository" --merge --match-head-commit "$verified_sha")
             if ! "$GH_BIN" "${args[@]}"; then
                 printf 'merge: result=failed\n' >&2
                 exit 1
             fi
             local state
-            state=$("$GH_BIN" pr view "$pr" --json state --jq .state 2>/dev/null) \
+            state=$("$GH_BIN" pr view "$pr" --repo "$verified_repository" --json state --jq .state 2>/dev/null) \
                 || workflow_die "merge command succeeded but the PR state could not be read" 1
             if [ "$state" != "MERGED" ]; then
                 printf 'merge: result=unverified state=%s\n' "$state" >&2

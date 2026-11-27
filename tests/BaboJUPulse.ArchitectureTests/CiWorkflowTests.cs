@@ -85,6 +85,7 @@ public sealed class CiWorkflowTests
         var root = LoadWorkflow();
         var trigger = Child(root, "on") ?? Child(root, "true");
         var triggerMapping = Assert.IsType<YamlMappingNode>(trigger);
+        Assert.Null(Child(triggerMapping, "pull_request_target"));
         var pullRequest = Assert.IsType<YamlMappingNode>(Child(triggerMapping, "pull_request"));
         var types = Assert.IsType<YamlSequenceNode>(Child(pullRequest, "types"));
         var configured = types.Children

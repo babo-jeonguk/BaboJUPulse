@@ -10,6 +10,12 @@ Give every change a predictable path from an agreed problem to a reviewed, verif
 
 This workflow is for maintainers and coding agents working in this repository. External contributors follow [CONTRIBUTING.md](../../CONTRIBUTING.md) and may use any IDE, editor, or local workflow. Paseo and the internal agent orchestration are conveniences, not contributor requirements.
 
+## Required inputs
+
+- A problem, defect, idea, or research question worth acting on.
+- A maintainer decision when the change affects product scope, licensing, repository settings, or a quality gate.
+- Access to the target repository and the ability to publish a branch or pull request.
+
 ## Stages
 
 | Stage | Procedure | Entry | Required output |
@@ -21,6 +27,14 @@ This workflow is for maintainers and coding agents working in this repository. E
 | 4a. Remediation | [Review remediation](review-remediation.md) | Blocking review findings | Corrected commits, evidence, and re-review approval |
 | 5. Pull request and CI | [Pull request](pull-request.md) | Review approval for the current head commit | A PR with the issue linked, evidence recorded, and required checks passing |
 | 6. Merge and cleanup | [PR merge](pr-merge.md) | Satisfied acceptance criteria, resolved findings, green required checks, mergeable branch | Verified merge, closed issue, clean workspace |
+
+## Required outputs
+
+An issue with a specification and acceptance criteria, an isolated branch, reviewed commits, a pull request with evidence, a verified merge, and a cleaned-up workspace. Each stage document defines the specific output for its part of that record.
+
+## Exit criteria
+
+The linked issue is closed with a merge reference or a recorded disposition, the merge result is verified on `main`, required checks passed on the current head, and no unreviewed change or dirty worktree remains.
 
 ## Stage-transition rules
 

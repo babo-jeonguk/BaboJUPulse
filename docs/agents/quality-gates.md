@@ -111,7 +111,7 @@ The checker is a pattern-based pre-publication control, not a complete data-loss
 - A bare `.scratch/` convention mention is allowed because contributors need to document the local workspace. A reference to a particular artifact below it is rejected.
 - Failure output is deliberately redacted: rule identifier, safe file label, and line number only. The matching text is never printed, so a raw credential cannot leak while the checker reports it.
 - The local script is the practical pre-publication control for issue, PR, comment, and review text. Run it on the exact text before posting.
-- CI rechecks the PR title and body, PR commit messages, and all tracked text files. The `pull_request` trigger includes `edited`, so a title or body change is revalidated.
+- CI rechecks the PR title and body, PR commit messages, and all tracked text files. The `pull_request` trigger includes `edited`, so a title or body change is revalidated. Keep the workflow on `pull_request` with read-only permissions; do not switch to `pull_request_target` to inspect untrusted PR text.
 - CI runs after the content is visible. It is post-publication detection, not prevention of initial disclosure. Editing or deleting content does not remove every copy or cache.
 
 ## Enforcement layers and trust boundary

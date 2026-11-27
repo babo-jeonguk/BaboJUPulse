@@ -9,6 +9,7 @@ BaboJUPulse is a Windows tray utility for system metrics and AI coding subscript
 - Do not add product features unless the task asks for them. Product scope is intent, not implemented behavior.
 - Never publish credentials, tokens, account data, local absolute paths, or references to Git-ignored working artifacts. Published content must stand on tracked files, issues/PRs, commits, CI, or public references.
 - Do not suppress a static-analysis diagnostic, weaken a quality gate, or change analyzer configuration independently. Stop and request maintainer approval with reproducible evidence; follow [quality gates](docs/agents/quality-gates.md).
+- Do not use the null-forgiving operator (`!`) or a self-written comment to silence nullability analysis. Fix the invariant with explicit null checks or sound type modeling; a genuine exception needs maintainer approval.
 - Do not claim a command, test, CI run, or Windows behavior passed unless you actually verified it.
 
 ## Routing

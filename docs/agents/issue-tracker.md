@@ -43,6 +43,8 @@ Use GitHub Issue Forms for these templates. Use a plain issue only when none of 
 
 ### 3. Draft the issue
 
+Do reference-first research when the task depends on an external API, an unfamiliar library, Windows-specific behavior, a security-sensitive operation, or an architectural decision. Verify current primary sources and record the references and conclusions in the issue; do not rely on an unverified recollection.
+
 Start from the form or a self-contained body. For an implementation specification:
 
 - State the observable behavior, not only the desired code shape.

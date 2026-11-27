@@ -44,6 +44,8 @@ Choose the primary purpose. If work genuinely spans types, split it; do not appl
 
 At most one lifecycle label is active. `blocked` replaces a ready state; do not leave a blocked issue marked ready. Removing `blocked` returns the issue to triage before a ready label is reapplied.
 
+There is no separate `triaged` label. An issue is triaged when it has a work type, area, priority, and either a ready label or an explicit waiting state. This avoids a label that duplicates the lifecycle.
+
 `ready-for-agent` does not mean beginner-friendly. It means the specification is complete enough for delegated implementation. Use `good first issue` separately for newcomer-friendly work.
 
 ## Functional area
@@ -60,7 +62,7 @@ At most one lifecycle label is active. `blocked` replaces a ready state; do not 
 | `area: infrastructure` | Build, CI, tests, repository policy, scripts, and tooling |
 | `area: docs` | Documentation content, templates, and contributor guidance |
 
-Apply at least one area before an issue becomes ready. Apply more than one only when the change genuinely crosses those boundaries. Do not create a new area label for a single issue without maintainer agreement.
+Apply at least one area before an issue becomes ready. Apply more than one only when the change genuinely crosses those boundaries. Do not create a new area label for a single issue without maintainer agreement. Work type describes the deliverable; area describes where it lands. A documentation change may therefore use both `documentation` and `area: docs` without duplicating a category.
 
 Product scope remains in [Product scope](../product-scope.md); architecture boundaries remain in [Architecture](../architecture.md) and the [ADRs](../adr/).
 

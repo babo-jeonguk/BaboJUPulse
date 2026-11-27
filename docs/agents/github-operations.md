@@ -22,7 +22,9 @@ Authoritative for repository operations and external publication. It does not de
 - Branch from `main`:
   - `feat/<short-name>` for a capability.
   - `fix/<short-name>` for a defect.
-  - `docs/<short-name>` for documentation or repository configuration.
+  - `docs/<short-name>` for documentation.
+  - `chore/<short-name>` for maintenance, tooling, or repository configuration.
+  - `test/<short-name>` for test-only work.
 - Commit messages follow Conventional Commits: `<type>: <subject>`.
   - Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `style`, `ci`, `perf`, `revert`.
   - Subject is at most 50 characters, imperative, with no trailing period.

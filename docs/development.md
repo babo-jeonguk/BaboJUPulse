@@ -56,9 +56,22 @@ Do not format unrelated files. When formatting is needed, format only the files 
 
 Required checks, suppression approval, analyzer changes, gate integrity, and enforcement limitations are defined in [Quality gates](agents/quality-gates.md). Do not duplicate or weaken those rules here.
 
+## Documentation validation
+
+Run the documentation checks directly when you change Markdown, links, contributor guidance, or workflow documentation. They do not build the application:
+
+```bash
+bash scripts/test-check-documentation.sh
+bash scripts/check-documentation.sh
+```
+
+The checker validates relative links, heading fragments, Git-ignored targets, local absolute paths, table shape, fenced-code closure, and the public-content policy. The repository-policy test invokes the same script, so there is one implementation of the rules. Policy and limitations are in [Quality gates](agents/quality-gates.md#documentation-validation).
+
+The separate [documentation workflow](../.github/workflows/docs.yml) runs the same checks on every pull request and push. It is not a branch-protection required check; the existing `build` workflow remains required and still runs on documentation-only commits.
+
 ## Tests
 
-- `tests/BaboJUPulse.ArchitectureTests/` protects repository and configuration invariants: target framework, no startup window, quality-gate settings, CI commands, analyzer configuration, source suppressions, documentation links, and local-only content.
+- `tests/BaboJUPulse.ArchitectureTests/` protects repository and configuration invariants: target framework, no startup window, quality-gate settings, CI commands, analyzer configuration, source suppressions, documentation validation, and local-only content.
 - Product tests belong in the layer that owns the behavior. Add a test project when the first product behavior exists; do not create a broad test pyramid in advance.
 - A bug fix needs a regression test that fails before the fix.
 - Tests must not depend on machine load, GPU presence, network access, locale, or wall-clock time.
@@ -90,7 +103,7 @@ The checker reports only a rule identifier, safe file label, and line number. It
 
 External contributors start at [CONTRIBUTING.md](../CONTRIBUTING.md). They may use any editor, IDE, or local workflow; Paseo and the internal agent orchestration are not required.
 
-The internal sequence is defined in [Development workflow](agents/development-workflow.md): issue and readiness, isolated workspace, slice-based implementation, independent review, PR, and merge. Branch naming, commit messages, publication, and local-only artifact rules are in [GitHub operations](agents/github-operations.md). Required validation and review gates are in [Quality gates](agents/quality-gates.md).
+The internal sequence is defined in [Development workflow](agents/development-workflow.md): issue and readiness, isolated workspace, slice-based implementation, independent review, PR, documentation freshness review, and merge with cleanup. Branch naming, commit messages, publication, and local-only artifact rules are in [GitHub operations](agents/github-operations.md). Required validation and review gates are in [Quality gates](agents/quality-gates.md). The PR Summary and Merge Danger guidance is in [Pull request](agents/pull-request.md).
 
 ## Windows-specific validation
 
@@ -113,6 +126,7 @@ The internal sequence is defined in [Development workflow](agents/development-wo
 | Commit rejected by `commit-msg` | Invalid Conventional Commit, too-long subject, or local-only reference | Fix the message; do not use `--no-verify` |
 | CI cannot find the SDK | `global.json` pins an unavailable patch | Update `global.json` in a dedicated PR |
 | Repository-policy test fails | A source suppression, nested config, disabled analyzer, weakened threshold, conditional CI step, or null-forgiving operator was introduced | Fix the code/configuration or request maintainer approval under [Quality gates](agents/quality-gates.md) |
+| Documentation checker rejects a file | A relative link or fragment is broken, a target is Git-ignored or local, a table has inconsistent columns, or a fence is unclosed | Use the reported rule and line to fix the document; rerun `bash scripts/check-documentation.sh` |
 | Public-content checker rejects text | A concrete local-only artifact path, local absolute path, or obvious secret pattern matched | Use the reported rule and line to fix the text locally; do not paste the matching value into a comment |
 
 ## Releases

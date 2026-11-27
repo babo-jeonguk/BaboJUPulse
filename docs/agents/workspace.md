@@ -78,7 +78,9 @@ git merge-base --is-ancestor origin/main HEAD
 git status --short
 ```
 
-Record the worktree path, branch, issue number, and base commit in the issue or working notes. Run the environment setup appropriate to the platform from [Development](../development.md#first-setup) before editing.
+Record the issue number, branch name, and base commit in the issue. These are shareable and self-contained. Keep the actual local worktree path, Paseo workspace identifier, session information, and other machine-specific details in private local working notes, not in published issue text. A bare `.scratch/` convention mention is allowed; a concrete artifact below it is not.
+
+Run the environment setup appropriate to the platform from [Development](../development.md#first-setup) before editing.
 
 ### 5. Keep the branch current
 
@@ -95,7 +97,8 @@ Do not rewrite reviewed history with a force push. If a merge changes behavior o
 
 - An isolated worktree directory.
 - A branch based on `origin/main`.
-- The issue number and base commit recorded.
+- The issue number, branch name, and base commit recorded in the issue with only shareable identifiers.
+- Local worktree paths and workspace or session identifiers kept in private local notes.
 - A clean starting status, or an explicit note about pre-existing changes.
 
 ## Exit criteria
@@ -112,6 +115,7 @@ Do not rewrite reviewed history with a force push. If a merge changes behavior o
 - Creating a duplicate workspace for an issue that already has a matching one.
 - Mixing unrelated issues in one branch without maintainer agreement.
 - Copying credentials, private logs, or local-only artifacts into the worktree.
+- Publishing a local worktree path, workspace identifier, or session detail in an issue.
 - Deleting a worktree that contains uncommitted changes or artifacts that still need to be preserved.
 - Requiring Paseo or internal agent orchestration for an external contribution.
 

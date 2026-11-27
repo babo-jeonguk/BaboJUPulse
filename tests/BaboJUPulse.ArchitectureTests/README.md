@@ -8,7 +8,7 @@ This project protects **repository policy invariants**:
 - Project and nested analyzer configuration cannot silently disable analysis.
 - Banned symbols remain active and coupling thresholds remain strict.
 - The CI workflow keeps the required, unconditional Windows gates and no-test runs fail.
-- Relative documentation links resolve, do not target Git-ignored paths, and do not use local absolute paths.
+- Documentation validation (relative links, heading fragments, Git-ignored and local-only targets, table shape, fence closure, and public-content policy) runs through the shared checker.
 - `.scratch/` remains ignored.
 
 These are repository-policy checks, not cross-assembly dependency tests. The app is still a single production assembly, so there is no domain/UI/provider boundary to inspect yet.

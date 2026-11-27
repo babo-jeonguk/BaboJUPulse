@@ -4,7 +4,7 @@ Authoritative for verification, static-analysis enforcement, suppression approva
 
 ## Required gates
 
-The CI workflow is [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). It runs on `windows-latest` and is the required `build` check.
+The required CI workflow is [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). It runs on `windows-latest` and is the required `build` check. A separate [documentation workflow](../../.github/workflows/docs.yml) runs lightweight documentation validation on every pull request and push; it is not a branch-protection required check by default.
 
 | Gate | Enforces |
 | --- | --- |
@@ -13,11 +13,12 @@ The CI workflow is [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
 | Build | Compiler, nullable analysis, warnings-as-errors, .NET analyzers, BannedApiAnalyzers |
 | Test | Behavior tests and repository-invariant tests |
 | Repository policy | Syntax- and configuration-aware checks described below |
+| Documentation | Relative links, heading fragments, ignored and local-only targets, table shape, fence closure, and public-content policy |
 | Public content | Publication policy and local-reference checks |
 | CodeQL | C# security analysis; advisory, not required |
 | Dependency review | New dependency vulnerabilities and licenses; advisory, not required |
 
-The exact quality-gate commands are in [Development](../development.md#quality-gates); the repository-policy and public-content commands are in [Development tests](../development.md#tests). Do not duplicate them in new documents.
+The exact quality-gate commands are in [Development](../development.md#quality-gates); the repository-policy, documentation, and public-content commands are in [Development tests](../development.md#tests). Do not duplicate them in new documents.
 
 ## Enforcement coverage
 
@@ -97,11 +98,33 @@ These checks run as tests and as a dedicated `Category=RepositoryPolicy` CI step
 | Nested configuration | Nested `.editorconfig`, `.globalconfig`, `Directory.Build.props`, or `Directory.Build.targets` overrides |
 | Banned symbols | Every active entry is required; removing or commenting out any entry fails the policy test |
 | Coupling thresholds | `CA1506(Type) <= 40` and `CA1506(Method) <= 20` |
-| CI policy | Mandatory steps exist, are unconditional, are not `continue-on-error`, and do not contain `|| true`, `|| exit 0`, `set +e`, or `exit 0`; required commands and the policy step are present; no-test runs fail; checkout uses full history; PR edits rerun validation |
-| Documentation links | Relative links resolve, do not target Git-ignored paths, and do not use local absolute paths |
+| CI policy | Mandatory steps exist, are unconditional, are not `continue-on-error`, and do not contain `\|\| true`, `\|\| exit 0`, `set +e`, or `exit 0`; required commands and the policy step are present; no-test runs fail; checkout uses full history; PR edits rerun validation |
+| Documentation | Relative links and heading fragments resolve, Git-ignored and local absolute targets are rejected, table columns and fenced-code closure are checked, and public-content rules are applied |
 | Public content | Concrete local-only artifact references, local absolute paths, and obvious secrets are rejected; bare `.scratch/` convention mentions are allowed; failure output is limited to a rule identifier, safe file label, and line number |
 
 The null-forgiving policy test matches the Roslyn `SuppressNullableWarningExpression` syntax node. A self-written justification comment has no effect. Fix the invariant with explicit null checks, sound type modeling, or another non-suppressing implementation; a genuine exception is a maintainer-approved policy change, not an agent-authored annotation.
+
+## Documentation validation
+
+[`scripts/check-documentation.sh`](../../scripts/check-documentation.sh) is the single local and CI implementation of the documentation checks. The repository-policy test invokes that script rather than maintaining a second link checker. `scripts/test-check-documentation.sh` supplies synthetic invalid and valid documents.
+
+The checker validates:
+
+- Relative links resolve to a tracked or untracked repository file or directory.
+- Heading fragments resolve to a generated GitHub-style heading slug.
+- Links do not target Git-ignored paths or leave the repository.
+- Links do not use local absolute paths or file URLs.
+- Table rows have the same column count as their header.
+- Fenced code blocks are closed.
+- Documentation files satisfy the public-content policy, using the existing checker rather than a second pattern set.
+
+The [documentation workflow](../../.github/workflows/docs.yml) runs the checker, its synthetic tests, and the public-content tests on every pull request and push. It has no `paths` or `paths-ignore` filter, so it cannot be skipped into a permanently pending state. The existing `build` workflow remains the only branch-protection required check; the merge procedure requires the documentation result on the final head. Adding the documentation job to branch protection, or removing the required `build` coverage, needs explicit maintainer authorization.
+
+A documentation-only commit after review does not change CI scope. It still triggers the full required `build` check and the documentation workflow. The narrow review exception in [Code review](code-review.md#7-documentation-only-follow-up-after-approval) changes review effort, not the validation that must pass on the final head.
+
+External links are not checked. Rate limits, authentication requirements, temporary failures, and site restrictions make them unreliable merge blockers. Markdown rendering style is not broadly linted, and Mermaid source is not rendered; the checker verifies fence closure and repository structure instead of imposing a formatting rule set.
+
+`markdownlint-cli2` and Mermaid rendering tools were evaluated. They were not adopted for this path because the repository has no Node.js runtime requirement, the default rule set would add broad formatting policy, and Mermaid rendering needs a browser-scale dependency. Reconsider a dedicated linter only when a concrete documentation defect class justifies the added dependency and maintenance.
 
 ## Public-content coverage and limits
 
@@ -121,6 +144,7 @@ The checker is a pattern-based pre-publication control, not a complete data-loss
 | Local `commit-msg` hook | Clones that configured `core.hooksPath` | Commit format, subject length, and public-content check |
 | Agent instructions | Agents working in the repository | Guidance and review expectations; not enforcement |
 | CI `build` | Every push to `main`, every PR (including title/body edits), manual runs | Restore audit, formatting, build, tests, policy tests, public-content checks |
+| CI `documentation` | Every push to `main`, every PR, manual runs | Documentation links, fragments, local-only targets, table shape, fence closure, and public-content checks |
 | Branch protection | Server-side on `main` | PR required, `build` required, up-to-date branch, resolved conversations, no force push or deletion, admins included |
 | CodeQL / dependency review | CI checks | Advisory security and dependency signals; not required |
 | Secret scanning / push protection | Server-side | Known secret formats in commits and pushes |
@@ -134,6 +158,7 @@ A repository-controlled guard is **not tamper-proof**. An agent with permission 
 | Narrow suppression for a genuine false positive | Maintainer only, after reproducible evidence |
 | Project-wide analyzer or quality-gate change | Maintainer; separate PR |
 | Weakening a quality gate | Maintainer; separate PR and ADR |
+| Documentation validation policy or required-check change | Maintainer only; do not self-authorize |
 | Merge strategy, visibility, license, approval requirements | Maintainer only |
 | Public-content policy exception | Maintainer only; do not self-authorize |
 
@@ -145,7 +170,9 @@ A repository-controlled guard is **not tamper-proof**. An agent with permission 
 - The checker scans text. `--tracked` skips binary files, and `--files` fails closed when grep cannot report a line number. Review binary additions manually.
 - Secret scanning and push protection cover known secret formats, not local paths or private context.
 - CodeQL and dependency review are advisory; only `build` is required by branch protection.
+- The `documentation` workflow is not a branch-protection required check. The merge procedure requires its result, but a repository setting change would be needed to enforce it server-side.
+- The documentation checker does not validate external link reachability, Mermaid rendering, or general Markdown formatting style. It validates repository structure and the checks listed above.
 - The local commit hook is bypassable and does not apply to contributors who did not run setup.
 - Architecture dependency tests and provider-boundary tests are deferred until separate assemblies or namespaces exist. See [ADR-0002](../adr/0002-static-analysis-and-architecture-enforcement.md).
 - The null-forgiving check rejects the operator; it does not prove that every other nullable annotation or nullability contract is honest.
-- An agent that can edit both code and validation can weaken a repository-controlled check. Maintainer review is required for any change to `.editorconfig`, `Directory.Build.props`, `BannedSymbols.txt`, `CodeMetricsConfig.txt`, the policy tests, `scripts/check-public-content.sh`, or `.github/workflows/ci.yml`.
+- An agent that can edit both code and validation can weaken a repository-controlled check. Maintainer review is required for any change to `.editorconfig`, `Directory.Build.props`, `BannedSymbols.txt`, `CodeMetricsConfig.txt`, the policy tests, `scripts/check-public-content.sh`, `scripts/check-documentation.sh`, or the workflows under `.github/workflows/`.

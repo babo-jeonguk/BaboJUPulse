@@ -52,7 +52,7 @@ Create a new commit or a coherent set of commits. Do not force-push over reviewe
 
 ### 5. Request re-review
 
-Request review of the new head SHA. The reviewer must confirm whether the previous blocking findings are resolved and whether the changes introduced new issues. Approval of the previous commit does not carry forward.
+Request review of the new head SHA. The reviewer must confirm whether the previous blocking findings are resolved and whether the changes introduced new issues. Approval of the previous commit does not carry forward, except for the documentation-only follow-up defined in [Code review](code-review.md#7-documentation-only-follow-up-after-approval).
 
 ## Escalation
 
@@ -71,7 +71,7 @@ When escalation is required, provide the finding, the evidence, the attempted co
 ## Exit criteria
 
 - Every valid blocking finding is resolved and verified.
-- The reviewer approves the exact current head commit.
+- The reviewer approves the exact current head commit, or the only later delta is a recorded documentation-only follow-up under [Code review](code-review.md#7-documentation-only-follow-up-after-approval).
 - No finding was silently dismissed or converted into an unapproved gate change.
 
 ## Prohibited actions

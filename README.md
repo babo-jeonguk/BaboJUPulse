@@ -57,7 +57,18 @@ dotnet build BaboJUPulse.slnx -c Release --no-restore -warnaserror
 dotnet test BaboJUPulse.slnx -c Release --no-build
 ```
 
-CI runs the same gates on `windows-latest`. Warnings are errors, nullable reference types are enabled, formatting is verified rather than auto-applied, and restore audits direct and transitive packages. Selected analyzers reject blocking waits, dispatcher blocking, TLS validation bypass, arbitrary command strings, and excessive complexity or coupling. Suppression approval, gate integrity, and known limitations are in [Quality gates](docs/agents/quality-gates.md); the tool decisions are in [ADR-0002](docs/adr/0002-static-analysis-and-architecture-enforcement.md).
+CI runs the same gates on `windows-latest`. Warnings are errors, nullable reference types are enabled, formatting is verified rather than auto-applied, and restore audits direct and transitive packages. Selected analyzers reject blocking waits, dispatcher blocking, TLS validation bypass, arbitrary command strings, and excessive complexity or coupling.
+
+Documentation changes also get a lightweight check that does not build the application:
+
+```bash
+bash scripts/test-check-documentation.sh
+bash scripts/check-documentation.sh
+```
+
+It validates relative links, heading fragments, Git-ignored and local-only targets, table shape, fenced-code closure, and the public-content policy. The separate `documentation` workflow runs the same checks on every pull request and push; the required `build` check remains mandatory on the final head.
+
+Suppression approval, gate integrity, and known limitations are in [Quality gates](docs/agents/quality-gates.md); the tool decisions are in [ADR-0002](docs/adr/0002-static-analysis-and-architecture-enforcement.md).
 
 ## Contributing
 
@@ -72,8 +83,9 @@ The internal agent workflow is described in [Development workflow](docs/agents/d
 - [Development](docs/development.md) — setup, build/run, tests, and troubleshooting.
 - [Development workflow](docs/agents/development-workflow.md) — issue-to-merge sequence and stage transitions.
 - [Issue tracker](docs/agents/issue-tracker.md) and [triage labels](docs/agents/triage-labels.md) — issue readiness and repository labels.
+- [Pull request](docs/agents/pull-request.md) and [PR merge](docs/agents/pr-merge.md) — PR evidence, documentation freshness, merge, and cleanup.
 - [GitHub operations](docs/agents/github-operations.md) — issues, PRs, commits, publication, and local-only artifacts.
-- [Quality gates](docs/agents/quality-gates.md) — verification, analyzer enforcement, suppressions, and limitations.
+- [Quality gates](docs/agents/quality-gates.md) — verification, documentation validation, analyzer enforcement, suppressions, and limitations.
 - [Architecture decisions](docs/adr/) — accepted decisions and their rationale.
 - [Coding standards](CODING_STANDARDS.md) — enforceable engineering rules.
 - [Agent guide](AGENTS.md) — entry point and task routing for coding agents.

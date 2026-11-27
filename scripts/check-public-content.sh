@@ -126,7 +126,8 @@ scan_tracked() {
     set +e
     paths=$(git grep -I -l -E -- "$combined" -- . \
         ':(exclude)scripts/check-public-content.sh' \
-        ':(exclude)scripts/test-public-content.sh' 2>/dev/null \
+        ':(exclude)scripts/test-public-content.sh' \
+        ':(exclude)scripts/test-check-documentation.sh' 2>/dev/null \
         | sort -u)
     code=$?
     set -e

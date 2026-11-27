@@ -13,15 +13,15 @@ This directory holds operating procedures that agents load on demand. [AGENTS.md
 | [Implementation](implementation.md) | Slice-based implementation and handoff to review | Coding rules, test rules, verification policy, commands |
 | [Code review](code-review.md) | Independent review scope, finding format, and approval SHA | Remediation procedure, coding rules |
 | [Review remediation](review-remediation.md) | Finding disposition, correction, and re-review | Review criteria, escalation limits, gate policy |
-| [Pull request](pull-request.md) | PR template use, evidence, publication checks, and CI verification | Merge procedure, publication policy details |
-| [PR merge](pr-merge.md) | Merge preconditions, post-merge verification, and workspace cleanup | Branch protection settings, PR preparation |
+| [Pull request](pull-request.md) | PR template use, Summary and Merge Danger, evidence, publication checks, and CI verification | Merge procedure, publication policy details |
+| [PR merge](pr-merge.md) | Merge preconditions, documentation freshness, post-merge verification, and workspace cleanup | Branch protection settings, PR preparation |
 
 ## Policy and reference
 
 | Document | Owns | Does not own |
 | --- | --- | --- |
 | [GitHub operations](github-operations.md) | Issue, PR, comment, review, commit, publication, and local-only artifact rules; repository settings and merge policy | Code quality, analyzer operation, issue triage stages |
-| [Quality gates](quality-gates.md) | Required verification, static-analysis enforcement, suppression approval, gate integrity, CI enforcement, and limitations | Coding rules, GitHub workflow |
+| [Quality gates](quality-gates.md) | Required verification, documentation validation, static-analysis enforcement, suppression approval, gate integrity, CI enforcement, and limitations | Coding rules, GitHub workflow |
 | [Coding standards](../../CODING_STANDARDS.md) | Acceptable code, architectural constraints, and prohibited implementation practices | Commands, suppression procedure |
 | [Development](../development.md) | Environment setup, build/run commands, test execution, and troubleshooting | GitHub policy, gate policy |
 | [Architecture](../architecture.md), [ADRs](../adr/) | Boundaries, decisions, and rationale | Operating procedures |

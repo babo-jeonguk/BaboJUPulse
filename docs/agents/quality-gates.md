@@ -142,6 +142,7 @@ A repository-controlled guard is **not tamper-proof**. An agent with permission 
 - CI checks a PR after its title, body, and commits are visible. It cannot prevent initial disclosure in a PR. Issue and comment publication has no server-side pre-publication guard.
 - Adding `edited` to the PR trigger revalidates a changed title or body, but it does not validate the text before the edit becomes visible.
 - The public-content checker is pattern-based. It can miss unusual references and can reject benign text. Sanitized summaries are allowed. Because output is redacted, use the reported rule and line to locate a match locally.
+- The checker scans text. `--tracked` skips binary files, and `--files` fails closed when grep cannot report a line number. Review binary additions manually.
 - Secret scanning and push protection cover known secret formats, not local paths or private context.
 - CodeQL and dependency review are advisory; only `build` is required by branch protection.
 - The local commit hook is bypassable and does not apply to contributors who did not run setup.

@@ -7,12 +7,35 @@ checker="$root/scripts/check-public-content.sh"
 output="$(mktemp)"
 file_fixture="$(mktemp)"
 tracked_root="$(mktemp -d)"
-trap 'rm -f "$output" "$file_fixture"; rm -rf "$tracked_root"' EXIT
+non_git_root="$(mktemp -d)"
+trap 'rm -f "$output" "$file_fixture"; rm -rf "$tracked_root" "$non_git_root"' EXIT
 
 fail() {
     echo "FAIL: $1" >&2
     exit 1
 }
+
+# Load the checker's helpers without running its CLI.
+source "$checker"
+
+if [ "$(safe_label "/home/alice/notes.md")" != "notes.md" ]; then
+    fail "POSIX absolute label was not reduced to a basename"
+fi
+if [ "$(safe_label "C:/Users/alice/notes.md")" != "notes.md" ]; then
+    fail "drive-prefixed label was not reduced to a basename"
+fi
+if [ "$(safe_label "C:\\Users\\alice\\notes.md")" != "notes.md" ]; then
+    fail "backslash drive-prefixed label was not reduced to a basename"
+fi
+if [ "$(safe_label "\\\\server\\share\\notes.md")" != "notes.md" ]; then
+    fail "UNC label was not reduced to a basename"
+fi
+if [ "$(safe_label "docs/secret file.md")" != "docs/secret%20file.md" ]; then
+    fail "space in a relative label was not encoded"
+fi
+if [ "$(safe_label "docs/notes.md")" != "docs/notes.md" ]; then
+    fail "tracked relative label was changed unexpectedly"
+fi
 
 run_checker() {
     local text=$1
@@ -25,12 +48,26 @@ run_checker() {
 
 is_safe_line() {
     local line=$1
+    local file_label
 
-    if printf '%s\n' "$line" | grep -Eq '^public-content: rule=[a-z-]+ file=[^ ]+ line=[0-9]+$'; then
+    if [ "$line" = "public-content: prohibited content detected" ]; then
         return 0
     fi
 
-    [ "$line" = "public-content: prohibited content detected" ]
+    file_label=$(printf '%s\n' "$line" \
+        | sed -n 's/^public-content: rule=[a-z-][a-z-]* file=\([^ ]*\) line=[0-9][0-9]*$/\1/p')
+
+    if [ -z "$file_label" ]; then
+        return 1
+    fi
+
+    case "$file_label" in
+        /*|[A-Za-z]:[\\/]*|\\\\*|//*)
+            return 1
+            ;;
+    esac
+
+    return 0
 }
 
 assert_safe_output() {
@@ -101,6 +138,12 @@ fi
 if is_safe_line "public-content: rule=github-token file=stdin"; then
     fail "safe-output allowlist accepted a line without a line number"
 fi
+if is_safe_line "public-content: rule=home-directory-path file=/home/alice/notes.md line=1"; then
+    fail "safe-output allowlist accepted a POSIX absolute file label"
+fi
+if is_safe_line "public-content: rule=home-directory-path file=C:/Users/alice/notes.md line=1"; then
+    fail "safe-output allowlist accepted a drive-prefixed file label"
+fi
 if ! is_safe_line "public-content: rule=github-token file=stdin line=1"; then
     fail "safe-output allowlist rejected a valid rule line"
 fi
@@ -114,12 +157,14 @@ check_reject "home path" "home-directory-path" "/home/alice/project/notes.md" "S
 check_reject "home path after equals" "home-directory-path" "/home/alice/project/notes.md" "path=/home/alice/project/notes.md"
 check_reject "home path in brackets" "home-directory-path" "/home/alice/project/notes.md" "[/home/alice/project/notes.md]"
 check_reject "home path after comma" "home-directory-path" "/home/alice/project/notes.md" "x,/home/alice/project/notes.md"
+check_reject "home path without file" "home-directory-path" "/home/alice" "See /home/alice for details."
 check_reject "macOS home path" "home-directory-path" "/Users/alice/project/notes.md" "See /Users/alice/project/notes.md."
 check_reject "root home path" "home-directory-path" "/root/project/notes.md" "See /root/project/notes.md."
 check_reject "windows path" "windows-user-path" 'C:\Users\alice\notes.md' 'See C:\Users\alice\notes.md.'
 check_reject "windows slash path" "windows-user-path" "C:/Users/alice/notes.md" "See C:/Users/alice/notes.md."
 check_reject "mounted windows user path" "windows-user-path" "/mnt/c/Users/alice/notes.md" "See /mnt/c/Users/alice/notes.md."
 check_reject "tilde path" "tilde-home-path" "~/project/notes.md" "See ~/project/notes.md."
+check_reject "tilde path without file" "tilde-home-path" "~/project" "See ~/project for details."
 check_reject "tilde path after equals" "tilde-home-path" "~/project/notes.md" "root=~/project/notes.md"
 check_reject "file URL" "file-url" "file:///tmp/notes.md" "See file:///tmp/notes.md."
 check_reject "wsl UNC path" "wsl-unc-path" '\\wsl$\Ubuntu\home\alice\notes.md' 'See \\wsl$\Ubuntu\home\alice\notes.md.'
@@ -142,6 +187,7 @@ check_accept "public URL" "See https://example.com/home/alice/project."
 check_accept "public URL with users" "See https://example.com/Users/alice/project."
 check_accept "short token-like text" "token: ghp_short"
 check_accept "redacted token placeholder" "token: ghp_<redacted>"
+check_accept "benign hyphenated prose" "task-oriented-workflow-with-review-gates"
 
 printf 'See /home/alice/notes.md\n' > "$file_fixture"
 if "$checker" --files "$file_fixture" >"$output" 2>&1; then
@@ -157,15 +203,66 @@ fi
 
 mkdir -p "$tracked_root/scripts" "$tracked_root/docs"
 cp "$checker" "$tracked_root/scripts/check-public-content.sh"
-printf 'token: ghp_abcdefghijklmnopqrstuvwxyz\n' > "$tracked_root/docs/a:b.md"
+printf 'token: ghp_abcdefghijklmnopqrstuvwxyz\n' > "$tracked_root/docs/secret file.md"
 git -C "$tracked_root" init -q
-git -C "$tracked_root" add "docs/a:b.md"
+git -C "$tracked_root" add "docs/secret file.md"
 if (cd "$tracked_root" && bash scripts/check-public-content.sh --tracked) >"$output" 2>&1; then
     fail "expected rejection in tracked-file mode"
 fi
-assert_safe_output "tracked colon filename" "github-token" "ghp_abcdefghijklmnopqrstuvwxyz"
-if ! grep -Fq "file=docs/a:b.md line=1" "$output"; then
+assert_safe_output "tracked space filename" "github-token" "ghp_abcdefghijklmnopqrstuvwxyz"
+if ! grep -Fq "file=docs/secret%20file.md line=1" "$output"; then
     fail "expected the tracked path and line in the report"
 fi
+
+mkdir -p "$non_git_root/scripts"
+cp "$checker" "$non_git_root/scripts/check-public-content.sh"
+printf 'See .scratch/task/plan.md\n' > "$non_git_root/notes.md"
+set +e
+(cd "$non_git_root" && bash scripts/check-public-content.sh --tracked) >"$output" 2>&1
+status=$?
+set -e
+if [ "$status" -ne 2 ]; then
+    fail "expected a scan error outside a Git repository, got $status"
+fi
+if grep -Fq -- ".scratch/task/plan.md" "$output"; then
+    fail "scan error output leaked the fixture text"
+fi
+if ! grep -Fq "could not scan tracked files" "$output"; then
+    fail "expected a safe scan-error message"
+fi
+
+case "${OSTYPE:-}" in
+    msys*|cygwin*)
+        ;;
+    *)
+        binary_fixture="$tracked_root/binary.dat"
+        printf 'abc\0token: ghp_abcdefghijklmnopqrstuvwxyz\n' > "$binary_fixture"
+        set +e
+        "$checker" --files "$binary_fixture" >"$output" 2>&1
+        status=$?
+        set -e
+        if [ "$status" -ne 2 ]; then
+            fail "expected a scan error for binary input, got $status"
+        fi
+        if grep -Fq "ghp_abcdefghijklmnopqrstuvwxyz" "$output"; then
+            fail "binary scan error output leaked the fixture text"
+        fi
+
+        drive_root="$tracked_root/drive-root"
+        mkdir -p "$drive_root/scripts" "$drive_root/C:/Users/alice"
+        cp "$checker" "$drive_root/scripts/check-public-content.sh"
+        printf 'See C:/Users/alice/notes.md\n' > "$drive_root/C:/Users/alice/notes.md"
+        if (cd "$drive_root" && bash scripts/check-public-content.sh --files "C:/Users/alice/notes.md") >"$output" 2>&1; then
+            fail "expected rejection for a drive-prefixed path"
+        fi
+        assert_safe_output "windows drive path" "home-directory-path" "C:/Users/alice/notes.md"
+        if grep -Fq -- "C:/Users/alice" "$output"; then
+            fail "output exposed the drive-prefixed path"
+        fi
+        if ! grep -Fq "file=notes.md" "$output"; then
+            fail "expected the safe basename for the drive-prefixed path"
+        fi
+        ;;
+esac
 
 echo "public-content tests passed"

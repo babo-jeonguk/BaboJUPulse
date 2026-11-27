@@ -31,13 +31,13 @@ rule_ids=(
 # A bare `.scratch/` mention is allowed; a concrete artifact path is not.
 rule_patterns=(
     '\.scratch[\\/][A-Za-z0-9_.*?$+{}-]+'
-    '(^|[^A-Za-z0-9._/-])/(home|Users|root)/[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+'
+    '(^|[^A-Za-z0-9._/-])/(home|Users|root)/[A-Za-z0-9._-]+([/][A-Za-z0-9._/-]+)?'
     '([A-Za-z]:[\\/]+Users|/mnt/[A-Za-z]/Users)[\\/]+[A-Za-z0-9._-]+'
-    '(^|[^A-Za-z0-9._/-])~/[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+'
+    '(^|[^A-Za-z0-9._/-])~/[A-Za-z0-9._-]+([/][A-Za-z0-9._/-]+)?'
     '\\\\wsl(\$|\.localhost)[\\/][A-Za-z0-9._-]+'
     'file://'
     'gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}'
-    'sk-[A-Za-z0-9-]{20,}'
+    '(^|[^A-Za-z0-9])sk-[A-Za-z0-9-]{20,}'
     'xox[baprs]-[A-Za-z0-9-]{10,}'
     'AKIA[0-9A-Z]{16}'
     'AIza[0-9A-Za-z_-]{35}'
@@ -49,20 +49,28 @@ report_match() {
     printf 'public-content: rule=%s file=%s line=%s\n' "$1" "$2" "$3" >&2
 }
 
+safe_basename() {
+    local path=${1//\\//}
+    printf '%s' "${path##*/}"
+}
+
 safe_label() {
     local path=$1
+    local label
 
     case "$path" in
         "$root"/*)
-            printf '%s' "${path#"$root"/}"
+            label=${path#"$root"/}
             ;;
-        /*)
-            basename -- "$path"
+        /*|[A-Za-z]:[\\/]*|\\\\*|//*)
+            label=$(safe_basename "$path")
             ;;
         *)
-            printf '%s' "$path"
+            label=$path
             ;;
     esac
+
+    printf '%s' "${label// /%20}"
 }
 
 scan_file() {
@@ -77,13 +85,19 @@ scan_file() {
     for index in "${!rule_ids[@]}"; do
         set +e
         lines=$(grep -nE -- "${rule_patterns[index]}" "$file" 2>/dev/null \
-            | cut -d: -f1 \
+            | sed -n 's/^\([0-9][0-9]*\):.*/\1/p' \
             | sort -n -u)
         code=$?
         set -e
 
-        if [ "$code" -eq 2 ]; then
+        if [ "$code" -ne 0 ] && [ "$code" -ne 1 ]; then
             echo "public-content: could not scan file=$label rule=${rule_ids[index]}" >&2
+            return 2
+        fi
+
+        # A match with no line number means grep treated the input as binary.
+        if [ "$code" -eq 0 ] && [ -z "$lines" ]; then
+            echo "public-content: could not scan binary file=$label rule=${rule_ids[index]}" >&2
             return 2
         fi
 
@@ -117,7 +131,7 @@ scan_tracked() {
     code=$?
     set -e
 
-    if [ "$code" -eq 2 ]; then
+    if [ "$code" -ne 0 ] && [ "$code" -ne 1 ]; then
         echo "public-content: could not scan tracked files" >&2
         return 2
     fi
@@ -129,7 +143,7 @@ scan_tracked() {
     while IFS= read -r path; do
         [ -z "$path" ] && continue
         code=0
-        scan_file "$path" "$path" || code=$?
+        scan_file "$(safe_label "$path")" "$path" || code=$?
         if [ "$code" -eq 2 ]; then
             return 2
         fi
@@ -155,41 +169,50 @@ finish() {
     fi
 }
 
-mode="${1:-stdin}"
-case "$mode" in
-    --tracked)
-        scan_tracked || finish $?
-        ;;
-    --files)
-        shift
-        if [ "$#" -eq 0 ]; then
-            echo "usage: $0 --files <path>..." >&2
-            exit 2
-        fi
+main() {
+    local mode="${1:-stdin}"
+    local result=0
+    local code=0
+    local file
 
-        result=0
-        for file in "$@"; do
-            code=0
-            scan_file "$(safe_label "$file")" "$file" || code=$?
-            if [ "$code" -eq 2 ]; then
+    case "$mode" in
+        --tracked)
+            scan_tracked || finish $?
+            ;;
+        --files)
+            shift
+            if [ "$#" -eq 0 ]; then
+                echo "usage: $0 --files <path>..." >&2
                 exit 2
             fi
-            if [ "$code" -eq 1 ]; then
-                result=1
-            fi
-        done
-        finish "$result"
-        ;;
-    stdin)
-        temp="$(mktemp)"
-        trap 'rm -f "$temp"' EXIT
-        cat > "$temp"
-        code=0
-        scan_file "stdin" "$temp" || code=$?
-        finish "$code"
-        ;;
-    *)
-        echo "usage: $0 [--tracked | --files <path>...]" >&2
-        exit 2
-        ;;
-esac
+
+            for file in "$@"; do
+                code=0
+                scan_file "$(safe_label "$file")" "$file" || code=$?
+                if [ "$code" -eq 2 ]; then
+                    exit 2
+                fi
+                if [ "$code" -eq 1 ]; then
+                    result=1
+                fi
+            done
+            finish "$result"
+            ;;
+        stdin)
+            temp="$(mktemp)"
+            trap 'rm -f "$temp"' EXIT
+            cat > "$temp"
+            code=0
+            scan_file "stdin" "$temp" || code=$?
+            finish "$code"
+            ;;
+        *)
+            echo "usage: $0 [--tracked | --files <path>...]" >&2
+            exit 2
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

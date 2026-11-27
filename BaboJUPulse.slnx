@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BaboJUPulse/BaboJUPulse.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BaboJUPulse.ArchitectureTests/BaboJUPulse.ArchitectureTests.csproj" />
+  </Folder>
+</Solution>

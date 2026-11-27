@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a product capability or a change to an existing one.
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem does this solve? Describe the situation, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should the product do? Include the taskbar or tray surface when relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you consider, and why is it worse?
+    validations:
+      required: false
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and provider impact
+      description: Does this affect one provider, all providers, or the system-monitoring path? What should explicitly stay out of scope?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: References
+      description: Link provider documentation, API documentation, or comparable behavior. Do not include credentials or account data.
+    validations:
+      required: false

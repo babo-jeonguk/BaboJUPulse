@@ -1,0 +1,36 @@
+#!/bin/sh
+# Enforce the commit convention documented in docs/development.md.
+set -eu
+
+message_file=$1
+header=$(awk 'NF && $0 !~ /^#/ { print; exit }' "$message_file")
+
+case "$header" in
+    "Merge "*|'Revert "'*|"fixup! "*|"squash! "*|"amend! "*)
+        exit 0
+        ;;
+esac
+
+if ! printf '%s\n' "$header" | grep -Eq '^[a-z]+(\([^)]+\))?!?: .+'; then
+    echo "commit-msg: first line must be '<type>: <subject>': $header" >&2
+    exit 1
+fi
+
+type=$(printf '%s\n' "$header" | sed -E 's/^([a-z]+).*/\1/')
+case " feat fix refactor docs test chore style ci perf revert " in
+    *" $type "*)
+        ;;
+    *)
+        echo "commit-msg: type '$type' is not allowed" >&2
+        echo "commit-msg: use feat, fix, refactor, docs, test, chore, style, ci, perf, or revert" >&2
+        exit 1
+        ;;
+esac
+
+subject=${header#*: }
+length=$(printf '%s' "$subject" | wc -m | tr -d ' ')
+if [ "$length" -gt 50 ]; then
+    echo "commit-msg: subject is $length characters; keep it at 50 or fewer" >&2
+    echo "commit-msg: $subject" >&2
+    exit 1
+fi

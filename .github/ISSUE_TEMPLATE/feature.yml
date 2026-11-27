@@ -3,6 +3,10 @@ description: Propose a product capability or a change to an existing one.
 title: "[Feature]: "
 labels: ["enhancement", "needs-triage"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, account data, local absolute paths, or references to local-only working artifacts. Use self-contained public references or tracked files.
   - type: textarea
     id: problem
     attributes:

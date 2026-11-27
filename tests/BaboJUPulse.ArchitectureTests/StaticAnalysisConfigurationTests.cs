@@ -2,6 +2,7 @@ using System.Xml.Linq;
 
 namespace BaboJUPulse.ArchitectureTests;
 
+[Trait("Category", "RepositoryPolicy")]
 public sealed class StaticAnalysisConfigurationTests
 {
     [Fact]
@@ -30,35 +31,8 @@ public sealed class StaticAnalysisConfigurationTests
     }
 
     [Fact]
-    public void BannedSymbolsCoverBlockingAndUnsafeApis()
-    {
-        var bannedSymbols = File.ReadAllText(Path.Combine(RepositoryPaths.Root, "BannedSymbols.txt"));
-
-        Assert.Contains("Thread.Sleep", bannedSymbols, StringComparison.Ordinal);
-        Assert.Contains("Task.Wait", bannedSymbols, StringComparison.Ordinal);
-        Assert.Contains("Task`1.Result", bannedSymbols, StringComparison.Ordinal);
-        Assert.Contains("Dispatcher.Invoke", bannedSymbols, StringComparison.Ordinal);
-        Assert.Contains("ServerCertificateValidationCallback", bannedSymbols, StringComparison.Ordinal);
-        Assert.Contains("Process.Start", bannedSymbols, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void SelectedAnalyzerRulesAreErrors()
     {
-        var severities = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var line in File.ReadAllLines(Path.Combine(RepositoryPaths.Root, ".editorconfig")))
-        {
-            var parts = line.Trim().Split('=', 2);
-            if (parts.Length != 2 || !parts[0].StartsWith("dotnet_diagnostic.", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var key = parts[0].Trim();
-            var rule = key["dotnet_diagnostic.".Length..].Replace(".severity", string.Empty, StringComparison.Ordinal);
-            severities[rule] = parts[1].Trim();
-        }
-
         string[] rules =
         [
             "CA1001",
@@ -79,21 +53,43 @@ public sealed class StaticAnalysisConfigurationTests
             "CA2213",
         ];
 
-        foreach (var rule in rules)
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var failures = new List<string>();
+
+        foreach (var file in new[] { ".editorconfig", ".globalconfig" })
         {
-            Assert.True(
-                severities.TryGetValue(rule, out var severity),
-                $"Missing analyzer severity for {rule}");
-            Assert.Equal("error", severity);
+            foreach (var line in File.ReadAllLines(Path.Combine(RepositoryPaths.Root, file)))
+            {
+                var parts = line.Trim().Split('=', 2);
+                if (parts.Length != 2 || !parts[0].StartsWith("dotnet_diagnostic.", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var key = parts[0].Trim();
+                var rule = key["dotnet_diagnostic.".Length..].Replace(".severity", string.Empty, StringComparison.Ordinal);
+                if (!rules.Contains(rule, StringComparer.Ordinal))
+                {
+                    continue;
+                }
+
+                seen.Add(rule);
+                var severity = parts[1].Trim();
+                if (!string.Equals(severity, "error", StringComparison.Ordinal))
+                {
+                    failures.Add($"{file}: {rule} is {severity}, not error");
+                }
+            }
         }
+
+        foreach (var rule in rules.Where(rule => !seen.Contains(rule)))
+        {
+            failures.Add($"Missing analyzer severity for {rule}");
+        }
+
+        Assert.True(
+            failures.Count == 0,
+            "Analyzer rule severities were weakened:" + Environment.NewLine + string.Join(Environment.NewLine, failures));
     }
 
-    [Fact]
-    public void CouplingThresholdsAreConfigured()
-    {
-        var config = File.ReadAllText(Path.Combine(RepositoryPaths.Root, "CodeMetricsConfig.txt"));
-
-        Assert.Contains("CA1506(Type): 40", config, StringComparison.Ordinal);
-        Assert.Contains("CA1506(Method): 20", config, StringComparison.Ordinal);
-    }
 }

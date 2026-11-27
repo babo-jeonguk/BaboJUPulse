@@ -57,20 +57,23 @@ dotnet build BaboJUPulse.slnx -c Release --no-restore -warnaserror
 dotnet test BaboJUPulse.slnx -c Release --no-build
 ```
 
-CI runs the same gates on `windows-latest`. Warnings are errors, nullable reference types are enabled, formatting is verified rather than auto-applied, and restore audits direct and transitive packages. Selected analyzers reject blocking waits, dispatcher blocking, TLS validation bypass, arbitrary command strings, and excessive complexity or coupling. The tool decisions are recorded in [ADR-0002](docs/adr/0002-static-analysis-and-architecture-enforcement.md).
+CI runs the same gates on `windows-latest`. Warnings are errors, nullable reference types are enabled, formatting is verified rather than auto-applied, and restore audits direct and transitive packages. Selected analyzers reject blocking waits, dispatcher blocking, TLS validation bypass, arbitrary command strings, and excessive complexity or coupling. Suppression approval, gate integrity, and known limitations are in [Quality gates](docs/agents/quality-gates.md); the tool decisions are in [ADR-0002](docs/adr/0002-static-analysis-and-architecture-enforcement.md).
 
 ## Documentation
 
 - [Product scope](docs/product-scope.md) — intended capabilities, constraints, and non-goals.
 - [Architecture](docs/architecture.md) — current shape and the boundaries future features must respect.
-- [Development](docs/development.md) — setup, commands, branch and PR flow, and validation.
+- [Development](docs/development.md) — setup, build/run, tests, and troubleshooting.
+- [GitHub operations](docs/agents/github-operations.md) — issues, PRs, commits, publication, and local-only artifacts.
+- [Quality gates](docs/agents/quality-gates.md) — verification, analyzer enforcement, suppressions, and limitations.
 - [Architecture decisions](docs/adr/) — accepted decisions and their rationale.
 - [Coding standards](CODING_STANDARDS.md) — enforceable engineering rules.
-- [Agent guide](AGENTS.md) — how coding agents should work in this repository.
+- [Agent guide](AGENTS.md) — entry point and task routing for coding agents.
+- [Documentation map](docs/README.md) — index of all project documentation.
 
 ## Security
 
-Do not commit credentials, tokens, account identifiers, or local configuration. The product will eventually read AI provider credentials; those values must stay in Windows Credential Manager or a DPAPI-protected store, never in source, logs, crash reports, or fixtures.
+Do not commit credentials, tokens, account identifiers, local configuration, or references to local-only working artifacts. The product will eventually read AI provider credentials; those values must stay in Windows Credential Manager or a DPAPI-protected store, never in source, logs, crash reports, or fixtures.
 
 Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md), not in a public issue.
 

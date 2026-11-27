@@ -1,37 +1,12 @@
 # Coding standards
 
-These rules apply to every change in this repository. They are review criteria, not suggestions. Where a rule can be checked by a tool, the tool is the authority; see [Enforcement](#enforcement).
+These rules apply to every change in this repository. They are review criteria, not suggestions. Where a rule can be checked by a tool, the tool is the authority; see [Quality gates](docs/agents/quality-gates.md).
 
-## Enforcement
+## Verification
 
-| Gate | Command | What it catches |
-| --- | --- | --- |
-| Restore | `dotnet restore BaboJUPulse.slnx` | Package source pinning and transitive NuGet audits |
-| Formatting | `dotnet format BaboJUPulse.slnx --verify-no-changes` | Whitespace, using order, style rules configured in `.editorconfig` |
-| Build | `dotnet build BaboJUPulse.slnx -c Release -warnaserror` | Compiler errors, nullable warnings, .NET analyzers, code-style analyzers |
-| Tests | `dotnet test BaboJUPulse.slnx -c Release` | Behavior, repository, and configuration invariants |
-| CI | `.github/workflows/ci.yml` | The same gates on `windows-latest` |
-| CodeQL | `.github/workflows/codeql.yml` | Security-relevant data flow and API misuse |
-| Dependency review | `.github/workflows/dependency-review.yml` | New dependencies with known vulnerabilities or disallowed licenses |
+Code must pass the gates defined in [Quality gates](docs/agents/quality-gates.md). Warnings are errors: fix the diagnostic or the design.
 
-Warnings are errors. A narrow suppression for a genuine false positive is allowed under [Suppressions and exceptions](#suppressions-and-exceptions). A project-wide analyzer or quality-gate change needs its own PR; weakening a gate needs an ADR and maintainer approval. Suppressing a warning merely to pass CI is prohibited.
-
-### Enforcement coverage
-
-| Area | Automated now | Remaining manual or deferred |
-| --- | --- | --- |
-| Formatting, style, naming | `dotnet format` and IDE analyzers | Judgment about whether a name or layout is clear |
-| Nullability and type safety | Compiler nullable analysis | Avoiding `dynamic`, reflection, and dishonest annotations |
-| Blocking waits and selected unsafe APIs | `BannedApiAnalyzers` with `BannedSymbols.txt` | Synchronous I/O that is not in the banned list |
-| Async correctness | `CA1849`, `CA2012`, `CA2016`, banned blocking waits | `async void`, fire-and-forget, and ownership of background work |
-| Resource ownership | `CA1001`, `CA1063`, `CA1816`, `CA2000`, `CA2213` | Event unsubscription and native handle lifetime |
-| Exception handling | `CA1031`, `CA2201` | Error-message quality and the correct boundary for a failure |
-| Complexity and coupling | `CA1502` and configured `CA1506` thresholds | God classes, method length, and whether an abstraction earns its keep |
-| Architecture boundaries and cycles | Repository configuration tests; compiler rejects project-reference cycles | Namespace cycles and domain/UI/provider dependency direction until separate assemblies exist; then ArchUnitNET |
-| Duplication | None | Review; introduce a focused analyzer only after a recurring failure |
-| Security | CodeQL, NuGet audit, dependency review, secret scanning, banned TLS/process APIs | Threat modeling, credential handling, and data-flow review |
-
-The table records coverage, not permission to ignore a manual rule. A rule that is not automated is still a review requirement.
+Do not independently add `#pragma warning disable`, `#nullable disable`, `SuppressMessage`, `UnconditionalSuppressMessage`, `NoWarn`, a severity override, or a nested analyzer configuration. A narrow suppression or a project-wide gate change requires maintainer approval under [Quality gates](docs/agents/quality-gates.md). Suppressing a warning merely to pass CI is prohibited.
 
 ## Architecture and separation of concerns
 
@@ -69,7 +44,7 @@ Follow the [.NET naming guidelines](https://learn.microsoft.com/dotnet/standard/
 
 ## Types and nullability
 
-- Nullable reference types are enabled. Do not use the null-forgiving operator (`!`) unless the invariant is proven immediately above it and a comment explains why.
+- Nullable reference types are enabled. Do not use the null-forgiving operator (`!`) unless the invariant is proven and a `// null-forgiving: <reason>` comment is on the same or previous line. The marker is a review aid; it does not authorize a diagnostic suppression.
 - Do not use `dynamic`, `object` as a stand-in for a known type, or reflection to avoid designing a type.
 - Use strongly typed identifiers and value objects where mixing values would be a bug (account IDs, provider IDs, percentages, byte counts, timestamps).
 - Represent optional provider data explicitly. A missing temperature is not `0`; a missing quota reset is not `DateTime.MinValue`.
@@ -139,6 +114,7 @@ Follow the [.NET naming guidelines](https://learn.microsoft.com/dotnet/standard/
 ## Security and privacy
 
 - Never commit credentials, tokens, cookies, account IDs, machine names, or local absolute paths. `.scratch/` and local env files are ignored for a reason.
+- Do not put references to local-only artifacts or local absolute paths in source comments. Published content must stand on tracked files, public references, or self-contained explanations; see [GitHub operations](docs/agents/github-operations.md#local-only-artifacts).
 - Store secrets in Windows Credential Manager or a DPAPI-protected store scoped to the current user. Do not invent a custom encryption scheme.
 - Do not log request headers, authorization codes, full provider responses, or file paths that identify the user. Redact at the logging boundary.
 - Treat provider responses as untrusted input. Validate shapes, bounds, and timestamps before using them.
@@ -146,42 +122,6 @@ Follow the [.NET naming guidelines](https://learn.microsoft.com/dotnet/standard/
 - Do not add telemetry, analytics, or crash upload without an explicit product decision and user consent.
 - Do not execute downloaded code, load unsigned plugins, or shell out to arbitrary commands. If a provider requires a CLI, invoke a fixed, validated executable path with explicit arguments.
 - Report security issues through [SECURITY.md](SECURITY.md), not a public issue.
-
-## Suppressions and exceptions
-
-There are three different actions. Do not treat them as the same:
-
-### Narrow, justified suppression
-
-A line-level or member-level suppression is acceptable only when all of these are true:
-
-1. The diagnostic is a genuine false positive for this exact code, not an inconvenience.
-2. The suppression is the narrowest form available: `#pragma warning disable`/`restore` around the specific line, or a member-level `[SuppressMessage]` with `Justification`.
-3. The justification is in the code and names the diagnostic and why the code is safe.
-4. The PR description records the diagnostic ID, the scope, and the alternative considered.
-5. The suppression does not hide a real defect, a failing test, or an unhandled resource leak.
-
-A narrow suppression for a documented false positive is reviewed like any other code. It is not a quality-gate change.
-
-### Project-wide configuration change
-
-Changing `.editorconfig`, `Directory.Build.props`, `BannedSymbols.txt`, an analyzer package, or a CI gate changes the rules for everyone. It needs its own PR with:
-
-- The diagnostic or gate being changed and the concrete problem it causes.
-- Evidence that the change does not reduce coverage for an existing class of defect.
-- The scope of the change and the files affected.
-
-Strengthening a gate is normal maintenance. Weakening it is not.
-
-### Weakening a quality gate
-
-Removing a banned symbol, lowering a severity, disabling an analyzer, adding project-wide `NoWarn`, disabling nullable, lowering `AnalysisLevel`, excluding files from analysis, or removing a CI step is a weakening. It requires:
-
-- A separate PR, never bundled with a feature or bug fix.
-- An ADR that records why the gate is wrong or impractical, what replaces it, and what risk is accepted.
-- Maintainer approval.
-
-Suppressing a warning merely to make CI pass is prohibited. If the warning is real, fix the code or change the design. If CI is wrong, fix the gate through the process above.
 
 ## Review checklist
 
@@ -193,4 +133,4 @@ Suppressing a warning merely to make CI pass is prohibited. If the warning is re
 - [ ] Disposable resources, timers, events, and native handles have an owner and a release path.
 - [ ] Tests cover the new behavior and the important failure path.
 - [ ] `dotnet format`, build, and tests pass locally; CI passes on the final commit.
-- [ ] Any suppression is narrow, justified, and disclosed; no project-wide gate was weakened.
+- [ ] No unauthorized suppression or gate weakening; see [Quality gates](docs/agents/quality-gates.md).

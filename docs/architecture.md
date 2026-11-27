@@ -7,7 +7,7 @@
 The repository contains:
 
 - `src/BaboJUPulse/` — a WPF executable with no window and no product features. It is the process host that future tray and taskbar surfaces will attach to.
-- `tests/BaboJUPulse.ArchitectureTests/` — repository and configuration invariants: target framework, no startup window, quality-gate settings, analyzer configuration, CI gates, relative documentation links, and ignored scratch files.
+- `tests/BaboJUPulse.ArchitectureTests/` — repository and configuration invariants: target framework, no startup window, quality-gate settings, analyzer configuration, source suppressions, CI gates, relative documentation links, and local-only content. The operating policy is in [Quality gates](agents/quality-gates.md).
 
 The current executable intentionally exits after startup. When the first host lands, it will keep the process alive and own the shutdown path.
 

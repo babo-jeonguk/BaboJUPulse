@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Do not include credentials, tokens, account identifiers, or private provider data. Redact logs before attaching them.
+        Do not include credentials, tokens, account identifiers, local absolute paths, or references to local-only working artifacts. Redact logs before attaching them and keep the report self-contained.
   - type: textarea
     id: current-behavior
     attributes:

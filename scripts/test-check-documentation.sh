@@ -6,10 +6,11 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fixture="$(mktemp -d)"
 output="$(mktemp)"
 outside="$(dirname "$fixture")/outside-documentation-fixture.md"
+alias_root="$(dirname "$fixture")/documentation-alias-$$"
 scratch_dir=".scr""atch"
 local_path="/ho""me/alice/notes.md"
 fake_token="ghp_""abcdefghijklmnopqrstuvwxyz"
-trap 'rm -rf "$fixture"; rm -f "$output" "$outside"' EXIT
+trap 'rm -rf "$fixture"; rm -f "$output" "$outside" "$alias_root"' EXIT
 
 fail() {
     echo "FAIL: $1" >&2
@@ -122,6 +123,16 @@ write_doc "docs/valid.md" \
     "" \
     "The $scratch_dir/ directory is local-only."
 assert_accept "valid document" "docs/valid.md"
+
+if ln -s "$fixture" "$alias_root" 2>/dev/null; then
+    if ! (cd "$alias_root" && bash scripts/check-documentation.sh --files docs/valid.md) >"$output" 2>&1; then
+        fail "expected acceptance through an aliased repository root"
+    fi
+    if [ -s "$output" ]; then
+        fail "expected empty output for an aliased repository root"
+    fi
+    rm -f "$alias_root"
+fi
 
 write_doc "docs/broken-link.md" \
     "# Broken link" \

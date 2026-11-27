@@ -10,7 +10,7 @@
 #   scripts/check-documentation.sh --files <path>  # scan named files
 set -euo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$root"
 
 rule_failed=0

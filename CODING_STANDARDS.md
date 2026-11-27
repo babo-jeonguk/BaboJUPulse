@@ -6,6 +6,7 @@ These rules apply to every change in this repository. They are review criteria, 
 
 | Gate | Command | What it catches |
 | --- | --- | --- |
+| Restore | `dotnet restore BaboJUPulse.slnx` | Package source pinning and transitive NuGet audits |
 | Formatting | `dotnet format BaboJUPulse.slnx --verify-no-changes` | Whitespace, using order, style rules configured in `.editorconfig` |
 | Build | `dotnet build BaboJUPulse.slnx -c Release -warnaserror` | Compiler errors, nullable warnings, .NET analyzers, code-style analyzers |
 | Tests | `dotnet test BaboJUPulse.slnx -c Release` | Behavior contracts and repository invariants |
@@ -30,6 +31,7 @@ The target boundaries are described in [Architecture](docs/architecture.md). The
 ## Dependencies
 
 - Use the .NET base class library first. Add a package only when it removes meaningful risk or work, not to save a few lines.
+- Restore only from the source pinned in `NuGet.config`. Do not add a machine-level or user-level package source to make a build work.
 - Every new package needs a reason in the PR: what it replaces, its maintenance status, its license, and its security surface.
 - Pin versions centrally when the first shared package appears. Do not let projects drift to different versions of the same package.
 - Do not depend on transitive packages directly. Add the direct reference or use the BCL type.

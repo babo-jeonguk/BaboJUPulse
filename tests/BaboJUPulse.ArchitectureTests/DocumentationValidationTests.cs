@@ -38,7 +38,7 @@ public sealed class DocumentationValidationTests
     {
         using var process = new Process
         {
-            StartInfo = new ProcessStartInfo("bash")
+            StartInfo = new ProcessStartInfo(BashExecutable())
             {
                 WorkingDirectory = RepositoryPaths.Root,
                 RedirectStandardOutput = true,
@@ -54,5 +54,35 @@ public sealed class DocumentationValidationTests
         process.WaitForExit();
 
         return (process.ExitCode, output + error);
+    }
+
+    private static string BashExecutable()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return "bash";
+        }
+
+        var programRoots = new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+        };
+
+        foreach (var root in programRoots)
+        {
+            if (string.IsNullOrEmpty(root))
+            {
+                continue;
+            }
+
+            var candidate = Path.Combine(root, "Git", "bin", "bash.exe");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return "bash";
     }
 }

@@ -56,10 +56,11 @@ Start from the form or a self-contained body. For an implementation specificatio
 
 ### 4. Check publication content before posting
 
-There is no server-side pre-publication guard for an issue. Run the local checker on the exact text:
+There is no server-side pre-publication guard for an issue. Run the local checker on the exact title and body:
 
 ```bash
-bash scripts/check-public-content.sh < "<body-file>"
+{ printf '%s\n\n' "<clear title>"; cat "<body-file>"; } \
+  | bash scripts/check-public-content.sh
 ```
 
 The checker reports only a rule, safe file label, and line number. Fix the reported line; do not paste the matching text into a comment while investigating.
@@ -80,7 +81,7 @@ Add a work-type label only when it is already known and exists. Do not invent la
 A maintainer or an explicitly delegated triage agent:
 
 1. Confirms the problem and the affected area.
-2. Assigns exactly one work type and at least one functional area.
+2. Confirms or changes exactly one work type (a form may pre-apply an unambiguous one) and assigns at least one functional area.
 3. Assigns one priority when the issue is ready to schedule.
 4. Removes `needs-triage`.
 5. Applies `ready-for-agent` when the issue is fully specified for implementation by an agent, or `ready-for-human` when it needs human judgment or manual work.
@@ -88,6 +89,7 @@ A maintainer or an explicitly delegated triage agent:
 
 Readiness requires all of the following:
 
+- One work type, at least one functional area, and one priority label are applied.
 - The problem or objective is unambiguous.
 - Acceptance criteria are observable and testable.
 - Scope and out-of-scope items are explicit.

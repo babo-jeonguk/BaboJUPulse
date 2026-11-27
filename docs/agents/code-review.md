@@ -1,6 +1,6 @@
 # Code review
 
-Authoritative for independent review of an implemented change. Remediation and loop limits live in [Review remediation](review-remediation.md); coding rules live in [Coding standards](../../CODING_STANDARDS.md); verification policy lives in [Quality gates](quality-gates.md).
+Authoritative for independent review of an implemented change. Remediation lives in [Review remediation](review-remediation.md); loop limits and escalation live in [Development workflow](development-workflow.md); coding rules live in [Coding standards](../../CODING_STANDARDS.md); verification policy lives in [Quality gates](quality-gates.md).
 
 ## Purpose
 

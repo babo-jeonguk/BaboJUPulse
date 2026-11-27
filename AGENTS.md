@@ -28,7 +28,7 @@ Read the linked document before the matching action. Do not load every document.
 | Worktree, branch, and base preparation | [Workspace](docs/agents/workspace.md) |
 | Slice-based implementation and tests | [Implementation](docs/agents/implementation.md) |
 | Independent review and finding records | [Code review](docs/agents/code-review.md) |
-| Remediation, re-review, loop limits | [Review remediation](docs/agents/review-remediation.md) |
+| Remediation and re-review | [Review remediation](docs/agents/review-remediation.md) |
 | PR preparation, evidence, and CI | [Pull request](docs/agents/pull-request.md) |
 | Merge, post-merge verification, cleanup | [PR merge](docs/agents/pr-merge.md) |
 | Issues, PRs, comments, commits, publication | [GitHub operations](docs/agents/github-operations.md) |

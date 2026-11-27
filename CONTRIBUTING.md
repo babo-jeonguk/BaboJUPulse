@@ -32,10 +32,12 @@ Fork the repository and clone your fork:
 ```bash
 gh repo fork babo-jeonguk/BaboJUPulse --clone
 cd BaboJUPulse
-git remote add upstream https://github.com/babo-jeonguk/BaboJUPulse.git
+git remote -v
 git fetch upstream
 git checkout -b fix/<short-name> upstream/main
 ```
+
+`gh repo fork --clone` normally configures `upstream` as the project repository. If `git remote -v` does not show it, add `https://github.com/babo-jeonguk/BaboJUPulse.git` as `upstream` before fetching.
 
 Use `feat/`, `fix/`, `docs/`, or another clear descriptive prefix. Keep one coherent change per branch. Do not commit directly to `main` in the upstream repository.
 
@@ -88,7 +90,8 @@ The default procedure copies the template to a body file, fills it in, checks it
 ```bash
 cp .github/PULL_REQUEST_TEMPLATE.md "<body-file>"
 # Edit the body file on your machine.
-bash scripts/check-public-content.sh < "<body-file>"
+{ printf '%s\n\n' "<type>: <subject>"; cat "<body-file>"; } \
+  | bash scripts/check-public-content.sh
 gh pr create --title "<type>: <subject>" --body-file "<body-file>" --base main
 ```
 

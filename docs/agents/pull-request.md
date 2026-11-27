@@ -42,11 +42,6 @@ The default procedure uses a body file copied from the template so the exact tex
 ```bash
 cp .github/PULL_REQUEST_TEMPLATE.md "<body-file>"
 # Edit the file and replace every placeholder with actual information.
-bash scripts/check-public-content.sh < "<body-file>"
-gh pr create \
-  --title "<type>: <subject>" \
-  --body-file "<body-file>" \
-  --base main
 ```
 
 Interactive use of `gh pr create --template .github/PULL_REQUEST_TEMPLATE.md` is acceptable only if you save the completed body and run the checker before submitting. Do not pass both `--template` and `--body` and assume the template is merged; the body override wins.
@@ -73,7 +68,8 @@ Use "not applicable" or "unverified" explicitly. Do not invent a result for a ch
 Run the checker on the exact title and body before posting:
 
 ```bash
-bash scripts/check-public-content.sh < "<body-file>"
+{ printf '%s\n\n' "<type>: <subject>"; cat "<body-file>"; } \
+  | bash scripts/check-public-content.sh
 ```
 
 The checker reports a rule, safe file label, and line number without printing the match. Fix the reported line and rerun.

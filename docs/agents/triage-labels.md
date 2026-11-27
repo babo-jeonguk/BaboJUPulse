@@ -110,7 +110,7 @@ At most one disposition is active. A closed issue keeps its disposition and hist
 
 ## Readiness labels
 
-The readiness conditions are owned by [Issue tracker](issue-tracker.md#triage-to-readiness). Apply `ready-for-agent` or `ready-for-human` only after that gate passes. A completed issue form does not satisfy it by itself.
+The readiness conditions are owned by [Issue tracker](issue-tracker.md#6-triage-to-readiness). Apply `ready-for-agent` or `ready-for-human` only after that gate passes. A completed issue form does not satisfy it by itself.
 
 ## Synchronizing actual labels
 

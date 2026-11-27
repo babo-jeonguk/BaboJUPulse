@@ -1,6 +1,6 @@
 # Review remediation
 
-Authoritative for resolving review findings and bounding the review loop. Review criteria live in [Code review](code-review.md); verification policy lives in [Quality gates](quality-gates.md).
+Authoritative for resolving review findings and requesting re-review. Loop limits and escalation live in [Development workflow](development-workflow.md); review criteria live in [Code review](code-review.md); verification policy lives in [Quality gates](quality-gates.md).
 
 ## Purpose
 

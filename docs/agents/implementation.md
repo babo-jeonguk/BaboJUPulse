@@ -46,7 +46,7 @@ Read only the documents routed by [AGENTS.md](../../AGENTS.md). For code changes
 - Do not add speculative abstractions or unrelated refactors.
 - Do not add product features the issue does not request.
 
-Test-driven development is optional. Tests are mandatory for behavior changes; follow the testability rules in [Coding standards](../../CODING_STANDARDS.md) and the commands in [Development](../development.md#tests).
+Test-driven development is optional. Apply the testability and regression-test rules in [Coding standards](../../CODING_STANDARDS.md) and run the commands in [Development](../development.md#tests).
 
 ### 4. Verify each slice
 

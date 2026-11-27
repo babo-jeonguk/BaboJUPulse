@@ -75,10 +75,11 @@ Do not publish:
 
 ## Publication checks
 
-- **Before posting** an issue, PR body, comment, or review, pipe the exact text through:
+- **Before posting** an issue or PR, check the title and body together. For a comment or review, check the exact text.
 
   ```bash
-  bash scripts/check-public-content.sh
+  { printf '%s\n\n' "<title>"; cat "<body-file>"; } \
+    | bash scripts/check-public-content.sh
   ```
 
   Run it from Git Bash, WSL, or another Bash environment. The checker rejects concrete `.scratch/` paths, local absolute paths, file URLs, obvious credential formats, and private keys. It accepts bare `.scratch/` convention mentions.

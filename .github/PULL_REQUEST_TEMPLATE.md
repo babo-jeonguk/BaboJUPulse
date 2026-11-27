@@ -37,6 +37,7 @@ Closes #
 
 - **Not applicable:**
 - **Unverified:** Include Windows runtime behavior that was not exercised.
+- **Known limitations:** Include constraints, deferred work, or behavior that remains unsupported.
 
 ## Risk and rollback
 

@@ -51,7 +51,7 @@ The linked issue is closed with a merge reference or a recorded disposition, the
 1. **Do not implement before the issue is ready.** A bug or feature report is input, not an implementation contract. The issue needs testable acceptance criteria and triage before implementation starts. A maintainer may authorize an urgent exception; record the exception in the issue.
 2. **One issue maps to one worktree, one branch, and one pull request by default.** Use one branch per coherent issue. If a change genuinely spans issues, link them and explain the grouping in the issue; do not merge unrelated work to reduce overhead.
 3. **Base new work on current `origin/main`.** Verify the repository, branch, and base before editing. Reuse a matching existing workspace rather than creating a duplicate.
-4. **Implement in slices, not one unreviewable dump.** Each slice needs a purpose, scope, and verification. Tests are mandatory for behavior changes even though test-driven development is optional.
+4. **Implement in slices, not one unreviewable dump.** Each slice needs a purpose, scope, and verification that satisfies the testability rules in [Coding standards](../../CODING_STANDARDS.md).
 5. **Run targeted checks after each slice and the full required suite before review.** The commands are in [Development](../development.md#quality-gates). Gate policy is in [Quality gates](quality-gates.md).
 6. **Review the actual diff against the issue, in a fresh context, before opening the PR.** A review approval names the exact commit. Changes after that commit require a new review of the affected work.
 7. **Do not open a PR with unresolved blocking findings.** Non-blocking recommendations may be recorded as follow-up issues or left for maintainer judgment.

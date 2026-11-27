@@ -114,6 +114,11 @@ write_doc "docs/valid.md" \
     "    | --- | --- |" \
     "    | 1 |" \
     "" \
+    "    \`\`\`" \
+    "    literal code" \
+    "" \
+    "See [next again](other.md#other-section)." \
+    "" \
     "The $scratch_dir/ directory is local-only."
 assert_accept "valid document" "docs/valid.md"
 

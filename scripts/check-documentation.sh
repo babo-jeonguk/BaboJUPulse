@@ -46,7 +46,7 @@ sanitize_fences() {
     awk '
         {
             sub(/\r$/, "")
-            if (match($0, /^[ \t]*(```+|~~~+)/)) {
+            if (match($0, /^[ \t]{0,3}(```+|~~~+)/)) {
                 marker = substr($0, RSTART, RLENGTH)
                 sub(/^[ \t]*/, "", marker)
                 character = substr(marker, 1, 1)
@@ -176,7 +176,7 @@ fence_errors() {
     awk '
         {
             sub(/\r$/, "")
-            if (match($0, /^[ \t]*(```+|~~~+)/)) {
+            if (match($0, /^[ \t]{0,3}(```+|~~~+)/)) {
                 marker = substr($0, RSTART, RLENGTH)
                 sub(/^[ \t]*/, "", marker)
                 character = substr(marker, 1, 1)

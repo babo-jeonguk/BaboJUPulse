@@ -107,6 +107,15 @@ CI runs on `windows-latest`. A green local run on Linux is necessary but not suf
 
 The `CI` workflow is the required status check for `main`. CodeQL is currently advisory; promote it to a required check once its signal is stable.
 
+## Repository settings
+
+- `main` is protected: a pull request is required, the `build` check must pass, the branch must be up to date, force pushes and deletions are blocked, and conversations must be resolved before merge.
+- Required approvals are `0` because the repository has one maintainer. CI is the gate. Raise the requirement when a second maintainer joins.
+- Only merge commits are allowed. Squash and rebase merges are disabled, and head branches are deleted after merge.
+- Auto-merge is enabled so a PR can merge once the required check passes.
+- Secret scanning, push protection, Dependabot alerts, and Dependabot security updates are enabled. Private vulnerability reporting is enabled through [SECURITY.md](../SECURITY.md).
+- Repository administrators are subject to the protection rules. A temporary protection change is an explicit maintenance action, not a way to land a feature.
+
 ## Windows-specific validation
 
 - Run the app on Windows to verify startup, shutdown, DPI behavior, and any host integration.

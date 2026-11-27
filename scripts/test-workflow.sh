@@ -711,6 +711,15 @@ assert_contains "staged changes require missing profile(s): --config" \
 git -C "$slice_fixture" reset -q -- global.json
 rm -f "$slice_fixture/global.json"
 
+printf 'is_global = true\n' > "$slice_fixture/.globalconfig"
+git -C "$slice_fixture" add .globalconfig
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 2 "validate slice missing globalconfig profile"
+assert_contains "staged changes require missing profile(s): --config" \
+    "validate slice missing globalconfig profile"
+git -C "$slice_fixture" reset -q -- .globalconfig
+rm -f "$slice_fixture/.globalconfig"
+
 : > "$dotnet_log"
 run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
 assert_exit 0 "validate slice docs"

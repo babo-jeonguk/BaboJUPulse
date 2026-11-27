@@ -427,7 +427,8 @@ classify_staged_profiles() {
         esac
         case "$path" in
             .github/workflows/*|*.props|*.targets|*.csproj|*.slnx|global.json|.editorconfig|\
-            BannedSymbols.txt|CodeMetricsConfig.txt|NuGet.config|.config/dotnet-tools.json)
+            .globalconfig|BannedSymbols.txt|CodeMetricsConfig.txt|NuGet.config|\
+            .config/dotnet-tools.json)
                 add_required_profile config
                 ;;
         esac

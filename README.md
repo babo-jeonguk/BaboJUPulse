@@ -79,8 +79,9 @@ The internal agent workflow is described in [Development workflow](docs/agents/d
 ## Documentation
 
 - [Product scope](docs/product-scope.md) — intended capabilities, constraints, and non-goals.
+- [GLOSSARY](GLOSSARY.md) — canonical product-domain terminology.
 - [Architecture](docs/architecture.md) — current shape and the boundaries future features must respect.
-- [Development](docs/development.md) — setup, build/run, tests, and troubleshooting.
+- [Development](docs/development.md) — setup, build/run, tests, workflow scripts, and troubleshooting.
 - [Development workflow](docs/agents/development-workflow.md) — issue-to-merge sequence and stage transitions.
 - [Issue tracker](docs/agents/issue-tracker.md) and [triage labels](docs/agents/triage-labels.md) — issue readiness and repository labels.
 - [Pull request](docs/agents/pull-request.md) and [PR merge](docs/agents/pr-merge.md) — PR evidence, documentation freshness, merge, and cleanup.

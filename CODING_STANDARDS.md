@@ -19,6 +19,12 @@ The target boundaries are described in [Architecture](docs/architecture.md). The
 - Dependencies point inward: infrastructure and UI may depend on domain/application contracts; domain code must not depend on them.
 - One process owns one concern. Do not introduce a background service, IPC channel, or plugin host until a documented requirement needs it.
 - Prefer composition at the application entry point. Do not use a static service locator or ambient global state to avoid passing a dependency.
+- Design for **depth**: put substantial behavior behind a small, explicit interface. A caller should not need provider credentials, HTTP details, or hardware layouts to use a module.
+- Apply the **deletion test**. If deleting a class, adapter, or layer only removes forwarding code, delete it. If it concentrates complexity that would otherwise spread across callers, keep it.
+- Introduce a **seam** only when behavior actually varies there or a test needs to replace it. A single implementation with no boundary reason does not justify an interface.
+- Do not add shallow pass-through abstractions: wrappers that forward every call, view models that only expose a service, or repositories that only wrap another repository.
+- Test through the module's observable contract. A test that must manipulate private internals is evidence of the wrong seam or the wrong test level.
+- Do not leak provider-specific authentication, request handling, quota interpretation, or error translation into a host or an unrelated application module.
 
 ## Dependencies
 
@@ -39,7 +45,7 @@ Follow the [.NET naming guidelines](https://learn.microsoft.com/dotnet/standard/
 - Interfaces start with `I` only when they are implemented by multiple types or cross a boundary. Do not create an interface for a single implementation without a test or boundary reason.
 - Async methods end in `Async` and return `Task` or `ValueTask`. Do not use `async void` except for an event handler at the UI boundary.
 - Booleans read as predicates: `IsAvailable`, `HasQuota`, `CanRefresh`. Avoid negated names such as `NotReady`.
-- Use the product vocabulary consistently: *account*, *provider*, *quota window*, *reset*, *sample*, *metric*. Do not introduce synonyms for the same concept.
+- Use the product vocabulary consistently: *account*, *provider*, *quota*, *quota window*, *quota snapshot*, *banked reset*, *metric*, *metric sample*. Consult [GLOSSARY.md](GLOSSARY.md) for the canonical meaning before introducing a synonym. Do not introduce synonyms for the same concept.
 - Name tests after the behavior they protect, not the method they call. `ReturnsUnknownWhenProviderDoesNotReportVram` is better than `TestGetVram2`.
 
 ## Types and nullability

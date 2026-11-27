@@ -56,6 +56,7 @@ WSL and Linux can compile the Windows-targeted projects, but the WPF executable 
 
 Read [CODING_STANDARDS.md](CODING_STANDARDS.md) before changing code. In particular:
 
+- Use the canonical product terms in [GLOSSARY.md](GLOSSARY.md); do not introduce a synonym or assume an unverified provider relationship.
 - Do not add unrequested product features or unrelated refactors.
 - Do not suppress a diagnostic, weaken a quality gate, or change analyzer configuration. A narrow exception needs maintainer approval under [Quality gates](docs/agents/quality-gates.md).
 - Do not use the null-forgiving operator. Fix the nullability model with explicit checks or a sound contract.

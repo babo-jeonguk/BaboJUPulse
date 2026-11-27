@@ -42,7 +42,7 @@ A validation result applies only to the snapshot it names. `validate.sh` exits w
 
 A slice is complete only when its verified changes are committed on the issue branch and the resulting clean checkpoint SHA is confirmed. `validate.sh slice` is the completion gate; `validate.sh targeted` is iteration help and is not completion evidence. Independent review still happens after all slices and full validation.
 
-Select every profile that describes the change. The profiles are deliberately coarse and do not implement a change-impact engine; the implementation agent remains responsible for adding an affected check when the profile is insufficient.
+Select every profile that describes the change. The profiles are deliberately coarse and do not implement a change-impact engine. `validate.sh slice` rejects an omitted profile when the staged paths are an obvious C# (`.cs`), workflow shell, documentation (`.md`), or build/configuration file type. That guard does not identify every affected behavior; the implementation agent remains responsible for adding an affected check when the profile is insufficient.
 
 | Change type | Profile | Required checks |
 | --- | --- | --- |

@@ -61,7 +61,7 @@ A slice starts from the previous verified, clean checkpoint. Select gates by the
 - Documentation changes use `--docs`.
 - Mixed changes combine the applicable profiles.
 
-Public-content checking is always included. Add another affected check when the profile is insufficient; the profiles are not a change-impact engine. Do not substitute an arbitrary minimal set for the gates the change needs.
+Public-content checking is always included. Slice validation rejects an omitted profile when the staged paths are an obvious C# (`.cs`), workflow shell, documentation (`.md`), or build/configuration file type. That guard is not a complete change-impact analysis: add another affected check when the profile is insufficient, and do not substitute an arbitrary minimal set for the gates the change needs.
 
 Stage only the intended slice, inspect the actual diff, then run the slice completion gate:
 

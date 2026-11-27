@@ -12,6 +12,7 @@
 #       C#: format, build, test. Configuration: restore, format, build, test,
 #       policy. Workflow shell: ShellCheck and workflow tests. Documentation:
 #       documentation checks. Repeat or combine profiles for a mixed change.
+#       An omitted profile for an obvious staged path type is rejected.
 #
 #   validate.sh docs
 #       Documentation and public-content checks only.
@@ -332,6 +333,7 @@ run_checks() {
 
 canonical_checks=(restore format build test policy docs public-content workflow)
 selected_checks=""
+required_profiles=""
 ordered_checks=()
 
 add_selected() {
@@ -396,6 +398,42 @@ parse_targeted() {
     order_selected
 }
 
+add_required_profile() {
+    local profile=$1
+    if ! list_contains "$required_profiles" "$profile"; then
+        required_profiles="$required_profiles $profile"
+    fi
+}
+
+classify_staged_profiles() {
+    local paths
+    local path
+    required_profiles=""
+    if ! paths=$("$GIT_BIN" -C "$root" diff --cached --name-only -- 2>/dev/null); then
+        workflow_die "could not read the staged paths for slice profile validation" 1
+    fi
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        case "$path" in
+            *.cs) add_required_profile csharp ;;
+        esac
+        case "$path" in
+            scripts/workflow/*.sh|scripts/test-workflow.sh|scripts/check-workflow-shell.sh)
+                add_required_profile workflow
+                ;;
+        esac
+        case "$path" in
+            *.md) add_required_profile docs ;;
+        esac
+        case "$path" in
+            .github/workflows/*|*.props|*.targets|*.csproj|*.slnx|global.json|.editorconfig|\
+            BannedSymbols.txt|CodeMetricsConfig.txt|NuGet.config|.config/dotnet-tools.json)
+                add_required_profile config
+                ;;
+        esac
+    done <<< "$paths"
+}
+
 parse_slice() {
     local profiles=""
     while [ "$#" -gt 0 ]; do
@@ -415,7 +453,19 @@ parse_slice() {
             "slice requires at least one profile: --csharp, --config, --workflow, or --docs"
     fi
 
+    classify_staged_profiles
+    local missing=""
     local profile
+    for profile in csharp config workflow docs; do
+        if list_contains "$required_profiles" "$profile" \
+            && ! list_contains "$profiles" "$profile"; then
+            missing="$missing --$profile"
+        fi
+    done
+    if [ -n "$missing" ]; then
+        workflow_usage_error "staged changes require missing profile(s):$missing"
+    fi
+
     for profile in csharp config workflow docs; do
         list_contains "$profiles" "$profile" || continue
         case "$profile" in

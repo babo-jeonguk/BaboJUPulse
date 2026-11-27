@@ -677,6 +677,40 @@ run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --unknown
 assert_exit 2 "validate slice unknown argument"
 assert_contains "unknown argument: --unknown" "validate slice unknown argument"
 
+printf 'class Staged { }\n' > "$slice_fixture/Program.cs"
+git -C "$slice_fixture" add Program.cs
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 2 "validate slice missing csharp profile"
+assert_contains "staged changes require missing profile(s): --csharp" \
+    "validate slice missing csharp profile"
+assert_not_contains "validate: check=docs result=running" \
+    "validate slice missing csharp profile"
+
+: > "$dotnet_log"
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs --csharp
+assert_exit 0 "validate slice additional profile"
+assert_check_order "restore format build test docs public-content " \
+    "validate slice additional profile"
+git -C "$slice_fixture" reset -q -- Program.cs
+rm -f "$slice_fixture/Program.cs"
+
+printf '# staged workflow change\n' >> "$slice_fixture/scripts/test-workflow.sh"
+git -C "$slice_fixture" add scripts/test-workflow.sh
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 2 "validate slice missing workflow profile"
+assert_contains "staged changes require missing profile(s): --workflow" \
+    "validate slice missing workflow profile"
+git -C "$slice_fixture" checkout -q HEAD -- scripts/test-workflow.sh
+
+printf '{}\n' > "$slice_fixture/global.json"
+git -C "$slice_fixture" add global.json
+run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
+assert_exit 2 "validate slice missing config profile"
+assert_contains "staged changes require missing profile(s): --config" \
+    "validate slice missing config profile"
+git -C "$slice_fixture" reset -q -- global.json
+rm -f "$slice_fixture/global.json"
+
 : > "$dotnet_log"
 run_at "$slice_fixture" "$root/scripts/workflow/validate.sh" slice --docs
 assert_exit 0 "validate slice docs"

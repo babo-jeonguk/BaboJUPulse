@@ -7,11 +7,11 @@
 #
 #   cleanup.sh execute --pr N [options]
 #       Perform every cleanup step that is safe. Unmerged local branches,
-#       dirty worktrees, fork branches, unrelated or ongoing agents, and
-#       diverged main are retained and reported. Any ignored content retains
-#       the worktree unless --remove-build-output explicitly requests removal
-#       of content that is fully reproducible build output. Repeating a
-#       completed step is safe.
+#       unmerged or unverifiable remote branch tips, dirty worktrees, fork
+#       branches, unrelated or ongoing agents, and diverged main are retained
+#       and reported. Any ignored content retains the worktree unless
+#       --remove-build-output explicitly requests removal of content that is
+#       fully reproducible build output. Repeating a completed step is safe.
 #
 # Options:
 #   --verified-sha <sha>       Require this reviewed head to equal the PR head.

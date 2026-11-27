@@ -24,7 +24,7 @@ The exact commands are in [Development](../development.md#quality-gates). Do not
 | Area | Automated now | Remaining manual or deferred |
 | --- | --- | --- |
 | Formatting, style, naming | `dotnet format` and IDE analyzers | Judgment about whether a name or layout is clear |
-| Nullability and type safety | Compiler nullable analysis and the null-forgiving marker check | Avoiding `dynamic`, reflection, and dishonest annotations |
+| Nullability and type safety | Compiler nullable analysis and the prohibition on null-forgiving operators | Avoiding `dynamic`, reflection, and dishonest annotations |
 | Blocking waits and selected unsafe APIs | `BannedApiAnalyzers` with `BannedSymbols.txt` | Synchronous I/O that is not in the banned list |
 | Async correctness | `CA1849`, `CA2012`, `CA2016`, banned blocking waits | `async void`, fire-and-forget, and ownership of background work |
 | Resource ownership | `CA1001`, `CA1063`, `CA1816`, `CA2000`, `CA2213` | Event unsubscription and native handle lifetime |
@@ -92,16 +92,27 @@ These checks run as tests and as a dedicated `Category=RepositoryPolicy` CI step
 | Check | Detects |
 | --- | --- |
 | Source policy | `#pragma warning disable`, `#nullable disable`, `SuppressMessage`, and `UnconditionalSuppressMessage` in tracked handwritten `.cs` files; tracked generated-file suffixes and `GeneratedCode` markers are rejected |
-| Null-forgiving policy | Postfix `!` without a `// null-forgiving: <reason>` comment on the same or previous line |
+| Null-forgiving policy | Every postfix `!` null-forgiving operator in tracked handwritten C#; a comment is not an exception |
 | Project policy | `NoWarn`, `WarningsNotAsErrors`, false `TreatWarningsAsErrors`/`EnableNETAnalyzers`/`RunAnalyzers*`/`CodeAnalysisTreatWarningsAsErrors`/`EnableDefaultCompileItems`, lowered `AnalysisLevel`, `AnalysisMode=None/Minimum`, disabled nullable, `Compile Remove`, `AutoGen` source exclusion, or `DefaultItemExcludes` for C# |
 | Nested configuration | Nested `.editorconfig`, `.globalconfig`, `Directory.Build.props`, or `Directory.Build.targets` overrides |
-| Banned symbols | Required banned API entries are active, not commented out |
+| Banned symbols | Every active entry is required; removing or commenting out any entry fails the policy test |
 | Coupling thresholds | `CA1506(Type) <= 40` and `CA1506(Method) <= 20` |
-| CI policy | Mandatory steps exist, are unconditional, are not `continue-on-error`, and do not contain `|| true`, `|| exit 0`, `set +e`, or `exit 0`; required commands and the policy step are present; no-test runs fail; checkout uses full history |
+| CI policy | Mandatory steps exist, are unconditional, are not `continue-on-error`, and do not contain `|| true`, `|| exit 0`, `set +e`, or `exit 0`; required commands and the policy step are present; no-test runs fail; checkout uses full history; PR edits rerun validation |
 | Documentation links | Relative links resolve, do not target Git-ignored paths, and do not use local absolute paths |
-| Public content | Concrete local-only artifact references, local absolute paths, and obvious secrets are rejected; bare `.scratch/` convention mentions are allowed |
+| Public content | Concrete local-only artifact references, local absolute paths, and obvious secrets are rejected; bare `.scratch/` convention mentions are allowed; failure output is limited to a rule identifier, safe file label, and line number |
 
-The null-forgiving check verifies that a justification marker exists, not that the justification is correct. The marker is a review aid; it is not authorization to suppress a diagnostic.
+The null-forgiving policy test matches the Roslyn `SuppressNullableWarningExpression` syntax node. A self-written justification comment has no effect. Fix the invariant with explicit null checks, sound type modeling, or another non-suppressing implementation; a genuine exception is a maintainer-approved policy change, not an agent-authored annotation.
+
+## Public-content coverage and limits
+
+The checker is a pattern-based pre-publication control, not a complete data-loss-prevention system.
+
+- It rejects concrete local-only artifact paths, common local absolute paths, file URLs, and obvious credential and private-key formats.
+- A bare `.scratch/` convention mention is allowed because contributors need to document the local workspace. A reference to a particular artifact below it is rejected.
+- Failure output is deliberately redacted: rule identifier, safe file label, and line number only. The matching text is never printed, so a raw credential cannot leak while the checker reports it.
+- The local script is the practical pre-publication control for issue, PR, comment, and review text. Run it on the exact text before posting.
+- CI rechecks the PR title and body, PR commit messages, and all tracked text files. The `pull_request` trigger includes `edited`, so a title or body change is revalidated.
+- CI runs after the content is visible. It is post-publication detection, not prevention of initial disclosure. Editing or deleting content does not remove every copy or cache.
 
 ## Enforcement layers and trust boundary
 
@@ -109,7 +120,7 @@ The null-forgiving check verifies that a justification marker exists, not that t
 | --- | --- | --- |
 | Local `commit-msg` hook | Clones that configured `core.hooksPath` | Commit format, subject length, and public-content check |
 | Agent instructions | Agents working in the repository | Guidance and review expectations; not enforcement |
-| CI `build` | Every push to `main`, every PR, manual runs | Restore audit, formatting, build, tests, policy tests, public-content checks |
+| CI `build` | Every push to `main`, every PR (including title/body edits), manual runs | Restore audit, formatting, build, tests, policy tests, public-content checks |
 | Branch protection | Server-side on `main` | PR required, `build` required, up-to-date branch, resolved conversations, no force push or deletion, admins included |
 | CodeQL / dependency review | CI checks | Advisory security and dependency signals; not required |
 | Secret scanning / push protection | Server-side | Known secret formats in commits and pushes |
@@ -129,10 +140,11 @@ A repository-controlled guard is **not tamper-proof**. An agent with permission 
 ## Known limitations
 
 - CI checks a PR after its title, body, and commits are visible. It cannot prevent initial disclosure in a PR. Issue and comment publication has no server-side pre-publication guard.
-- The public-content checker is pattern-based. It can miss unusual references and can reject benign text. Sanitized summaries are allowed.
+- Adding `edited` to the PR trigger revalidates a changed title or body, but it does not validate the text before the edit becomes visible.
+- The public-content checker is pattern-based. It can miss unusual references and can reject benign text. Sanitized summaries are allowed. Because output is redacted, use the reported rule and line to locate a match locally.
 - Secret scanning and push protection cover known secret formats, not local paths or private context.
 - CodeQL and dependency review are advisory; only `build` is required by branch protection.
 - The local commit hook is bypassable and does not apply to contributors who did not run setup.
 - Architecture dependency tests and provider-boundary tests are deferred until separate assemblies or namespaces exist. See [ADR-0002](../adr/0002-static-analysis-and-architecture-enforcement.md).
-- The null-forgiving check does not prove the invariant; it only requires a stated reason.
+- The null-forgiving check rejects the operator; it does not prove that every other nullable annotation or nullability contract is honest.
 - An agent that can edit both code and validation can weaken a repository-controlled check. Maintainer review is required for any change to `.editorconfig`, `Directory.Build.props`, `BannedSymbols.txt`, `CodeMetricsConfig.txt`, the policy tests, `scripts/check-public-content.sh`, or `.github/workflows/ci.yml`.

@@ -80,6 +80,27 @@ public sealed class CiWorkflowTests
     }
 
     [Fact]
+    public void PublicContentChecksRerunWhenPullRequestTextChanges()
+    {
+        var root = LoadWorkflow();
+        var trigger = Child(root, "on") ?? Child(root, "true");
+        var triggerMapping = Assert.IsType<YamlMappingNode>(trigger);
+        var pullRequest = Assert.IsType<YamlMappingNode>(Child(triggerMapping, "pull_request"));
+        var types = Assert.IsType<YamlSequenceNode>(Child(pullRequest, "types"));
+        var configured = types.Children
+            .OfType<YamlScalarNode>()
+            .Select(node => node.Value)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var required in new[] { "opened", "synchronize", "reopened", "edited" })
+        {
+            Assert.True(
+                configured.Contains(required),
+                $"Public-content validation must run when a pull request is '{required}'");
+        }
+    }
+
+    [Fact]
     public void SecurityWorkflowsExist()
     {
         string[] workflows = ["codeql.yml", "dependency-review.yml"];

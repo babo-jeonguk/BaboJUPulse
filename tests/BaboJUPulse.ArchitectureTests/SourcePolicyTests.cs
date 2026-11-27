@@ -17,12 +17,33 @@ public sealed class SourcePolicyTests
     }
 
     [Fact]
-    public void NullForcingOperatorsHaveJustification()
+    public void SourceFilesContainNoNullForcingOperators()
     {
-        var failures = SourceFileScanner.FindUnjustifiedNullForcing();
+        var failures = SourceFileScanner.FindNullForcingOperators();
         Assert.True(
             failures.Count == 0,
-            "Unjustified null-forgiving operators:" + Environment.NewLine + string.Join(Environment.NewLine, failures));
+            "Null-forgiving operators are prohibited. Fix the nullability model or request maintainer approval:"
+                + Environment.NewLine
+                + string.Join(Environment.NewLine, failures));
+    }
+
+    [Fact]
+    public void NullForcingDetectionIsSyntaxAwareAndIgnoresComments()
+    {
+        const string source = """
+            // null-forgiving: this comment must not authorize the operator
+            internal static class Example
+            {
+                public static string Accept(string? value) => value!;
+                public static bool Negate(bool value) => !value;
+                public static bool Compare(string? left, string? right) => left != right;
+            }
+            """;
+
+        var failures = SourceFileScanner.FindNullForcingOperators("synthetic.cs", source);
+
+        var failure = Assert.Single(failures);
+        Assert.Contains("synthetic.cs:4", failure, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -67,13 +88,27 @@ internal static class SourceFileScanner
         return failures;
     }
 
-    public static IReadOnlyList<string> FindUnjustifiedNullForcing()
+    public static IReadOnlyList<string> FindNullForcingOperators()
     {
         var failures = new List<string>();
         foreach (var file in SourceFiles())
         {
             AddNullForcing(file, Parse(file), failures);
         }
+
+        return failures;
+    }
+
+    public static IReadOnlyList<string> FindNullForcingOperators(string relativePath, string source)
+    {
+        var failures = new List<string>();
+        AddNullForcing(
+            relativePath,
+            CSharpSyntaxTree.ParseText(
+                source,
+                new CSharpParseOptions(LanguageVersion.Latest),
+                relativePath),
+            failures);
 
         return failures;
     }
@@ -137,22 +172,12 @@ internal static class SourceFileScanner
 
     private static void AddNullForcing(string file, SyntaxTree tree, List<string> failures)
     {
-        var text = tree.GetText();
         foreach (var expression in tree.GetCompilationUnitRoot()
                      .DescendantNodes()
                      .OfType<PostfixUnaryExpressionSyntax>()
                      .Where(node => node.IsKind(SyntaxKind.SuppressNullableWarningExpression)))
         {
-            var line = expression.GetLocation().GetLineSpan().StartLinePosition.Line;
-            var currentLine = text.Lines[line].ToString();
-            var previousLine = line > 0 ? text.Lines[line - 1].ToString() : string.Empty;
-
-            if (!currentLine.Contains("// null-forgiving:", StringComparison.Ordinal)
-                && !previousLine.Contains("// null-forgiving:", StringComparison.Ordinal))
-            {
-                failures.Add(
-                    $"{file}:{line + 1}: null-forgiving operator needs a '// null-forgiving: <reason>' comment");
-            }
+            failures.Add($"{file}:{Line(expression)}: null-forgiving operator is prohibited");
         }
     }
 

@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+    # Default activity types omit edited; PR title and body changes must be revalidated.
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 permissions:

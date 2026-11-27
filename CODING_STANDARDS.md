@@ -44,7 +44,7 @@ Follow the [.NET naming guidelines](https://learn.microsoft.com/dotnet/standard/
 
 ## Types and nullability
 
-- Nullable reference types are enabled. Do not use the null-forgiving operator (`!`) unless the invariant is proven and a `// null-forgiving: <reason>` comment is on the same or previous line. The marker is a review aid; it does not authorize a diagnostic suppression.
+- Nullable reference types are enabled. Do not use the null-forgiving operator (`!`) to silence nullability analysis. Fix the invariant with explicit null checks, `required` members, `[NotNullWhen]`/`[MemberNotNull]`, or a non-nullable contract. A comment does not authorize the operator; the repository-policy test rejects it. A genuine false positive requires maintainer approval under [Quality gates](docs/agents/quality-gates.md) and a policy change in a separate PR.
 - Do not use `dynamic`, `object` as a stand-in for a known type, or reflection to avoid designing a type.
 - Use strongly typed identifiers and value objects where mixing values would be a bug (account IDs, provider IDs, percentages, byte counts, timestamps).
 - Represent optional provider data explicitly. A missing temperature is not `0`; a missing quota reset is not `DateTime.MinValue`.
@@ -128,7 +128,7 @@ Follow the [.NET naming guidelines](https://learn.microsoft.com/dotnet/standard/
 - [ ] The change matches the issue and does not add unrequested scope.
 - [ ] Domain logic has no WPF, Windows, HTTP, or provider SDK dependency.
 - [ ] Provider-specific behavior is behind an adapter and missing capabilities are explicit.
-- [ ] Nullable annotations are honest; no unexplained `!` or `null!`.
+- [ ] Nullable annotations are honest; no null-forgiving `!` or `null!`.
 - [ ] Failures are handled at the right boundary and do not leak secrets.
 - [ ] Disposable resources, timers, events, and native handles have an owner and a release path.
 - [ ] Tests cover the new behavior and the important failure path.

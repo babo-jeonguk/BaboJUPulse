@@ -50,7 +50,7 @@ Test-driven development is optional. Apply the testability and regression-test r
 
 ### 4. Verify each slice
 
-Run the targeted checks for the area you changed. Use the commands in [Development](../development.md#quality-gates). For repository-policy or configuration changes, run the policy subset explicitly.
+Run the targeted checks for the area you changed. Use the commands in [Development](../development.md#quality-gates) and [Development tests](../development.md#tests). For repository-policy or configuration changes, run the policy subset explicitly.
 
 If a check fails, fix the cause. Do not add a suppression, weaken a severity, exclude a file, or change a gate independently. Stop and request maintainer approval with reproducible evidence, following [Quality gates](quality-gates.md).
 

@@ -37,7 +37,7 @@ rule_patterns=(
     '\\\\wsl(\$|\.localhost)[\\/][A-Za-z0-9._-]+'
     'file://'
     'gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}'
-    '(^|[^A-Za-z0-9])(sk-proj-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{20,})'
+    '(^|[^A-Za-z0-9])(sk-(proj|svcacct|admin|None|ant)-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{20,})'
     'xox[baprs]-[A-Za-z0-9-]{10,}'
     'AKIA[0-9A-Z]{16}'
     'AIza[0-9A-Za-z_-]{35}'

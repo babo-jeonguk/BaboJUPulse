@@ -1,6 +1,6 @@
 # Quality gates
 
-Authoritative for verification, static-analysis enforcement, suppression approval, and gate integrity. Code rules live in [CODING_STANDARDS.md](../../CODING_STANDARDS.md); environment and command definitions live in [Development](../development.md#quality-gates).
+Authoritative for verification, static-analysis enforcement, suppression approval, and gate integrity. Code rules live in [CODING_STANDARDS.md](../../CODING_STANDARDS.md); environment and command definitions live in [Development](../development.md#quality-gates) and [Development tests](../development.md#tests).
 
 ## Required gates
 

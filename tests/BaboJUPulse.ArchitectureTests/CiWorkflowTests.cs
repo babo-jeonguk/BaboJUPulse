@@ -99,7 +99,7 @@ public sealed class CiWorkflowTests
             publicContentRun,
             StringComparison.Ordinal);
         Assert.Contains(
-            "git log --format=%B",
+            "git log --format=%B \"$BASE_SHA..$HEAD_SHA\" | bash scripts/check-public-content.sh",
             publicContentRun,
             StringComparison.Ordinal);
         var publicContentEnvironment = RequireMapping(publicContentStep, "env");

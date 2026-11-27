@@ -74,7 +74,7 @@ is_safe_line() {
     fi
 
     case "$file_label" in
-        /*|[A-Za-z]:[\\/]*|\\\\*|//*)
+        /*|[A-Za-z]:[\\/]*|\\\\*|//*|*://*|~*|../*|..\\*)
             return 1
             ;;
     esac
@@ -156,6 +156,15 @@ fi
 if is_safe_line "public-content: rule=home-directory-path file=C:/Users/alice/notes.md line=1"; then
     fail "safe-output allowlist accepted a drive-prefixed file label"
 fi
+if is_safe_line "public-content: rule=tilde-home-path file=~/notes.md line=1"; then
+    fail "safe-output allowlist accepted a tilde file label"
+fi
+if is_safe_line "public-content: rule=home-directory-path file=../alice/notes.md line=1"; then
+    fail "safe-output allowlist accepted a parent-relative file label"
+fi
+if is_safe_line "public-content: rule=file-url file=file:///home/alice/notes.md line=1"; then
+    fail "safe-output allowlist accepted a file URL label"
+fi
 if ! is_safe_line "public-content: rule=github-token file=stdin line=1"; then
     fail "safe-output allowlist rejected a valid rule line"
 fi
@@ -186,6 +195,9 @@ check_reject "github token" "github-token" "ghp_abcdefghijklmnopqrstuvwxyz" "tok
 check_reject "github fine-grained token" "github-token" "github_pat_abcdefghijklmnopqrstuvwxyz" "token: github_pat_abcdefghijklmnopqrstuvwxyz"
 check_reject "openai key" "openai-key" "sk-abcdefghijklmnopqrstuvwxyz" "token: sk-abcdefghijklmnopqrstuvwxyz"
 check_reject "openai project key" "openai-key" "sk-proj-abcdefghijklmnopqrstuvwxyz" "token: sk-proj-abcdefghijklmnopqrstuvwxyz"
+check_reject "openai service-account key" "openai-key" "sk-svcacct-abcdefghijklmnopqrstuvwxyz" "token: sk-svcacct-abcdefghijklmnopqrstuvwxyz"
+check_reject "openai admin key" "openai-key" "sk-admin-abcdefghijklmnopqrstuvwxyz" "token: sk-admin-abcdefghijklmnopqrstuvwxyz"
+check_reject "openai none-scope key" "openai-key" "sk-None-abcdefghijklmnopqrstuvwxyz" "token: sk-None-abcdefghijklmnopqrstuvwxyz"
 check_reject "anthropic key" "openai-key" "sk-ant-abcdefghijklmnopqrstuvwxyz" "token: sk-ant-abcdefghijklmnopqrstuvwxyz"
 check_reject "slack token" "slack-token" "xoxb-abcdefghijklmnop" "token: xoxb-abcdefghijklmnop"
 check_reject "aws access key" "aws-access-key" "AKIAABCDEFGHIJKLMNOP" "token: AKIAABCDEFGHIJKLMNOP"

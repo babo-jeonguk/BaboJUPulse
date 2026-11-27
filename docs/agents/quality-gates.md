@@ -173,7 +173,7 @@ A repository-controlled guard is **not tamper-proof**. An agent with permission 
 - The `documentation` workflow is not a branch-protection required check. The merge procedure requires its result, but a repository setting change would be needed to enforce it server-side.
 - The documentation checker does not validate external link reachability, Mermaid rendering, or general Markdown formatting style. It validates repository structure and the checks listed above.
 - The checker resolves inline links and images. Reference-style link definitions are not currently resolved; prefer inline links or verify them manually.
-- The table check skips four-space-indented code blocks as a heuristic. A malformed table nested four spaces under a list item may be skipped; verify that case manually.
+- The table, link, and anchor checks skip four-space-indented code blocks as a heuristic. A malformed table or broken link nested four spaces under a list item may be skipped; verify that case manually.
 - Prose local-path detection relies on the public-content checker's supported patterns. Link targets are rejected separately.
 - The local commit hook is bypassable and does not apply to contributors who did not run setup.
 - Architecture dependency tests and provider-boundary tests are deferred until separate assemblies or namespaces exist. See [ADR-0002](../adr/0002-static-analysis-and-architecture-enforcement.md).

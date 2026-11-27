@@ -116,6 +116,7 @@ write_doc "docs/valid.md" \
     "" \
     "    \`\`\`" \
     "    literal code" \
+    "    [example](not-a-real-link)" \
     "" \
     "See [next again](other.md#other-section)." \
     "" \
@@ -127,6 +128,14 @@ write_doc "docs/broken-link.md" \
     "" \
     "See [missing](missing.md)."
 assert_reject "broken relative link" "relative-link" "docs/broken-link.md" "3"
+
+write_doc "docs/indented-visible-link.md" \
+    "# Indented visible link" \
+    "" \
+    "    [example](not-a-real-link)" \
+    "" \
+    "[broken](missing.md)."
+assert_reject "visible link after indented code" "relative-link" "docs/indented-visible-link.md" "5"
 
 write_doc "docs/broken-fragment.md" \
     "# Broken fragment" \

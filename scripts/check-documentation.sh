@@ -77,6 +77,10 @@ sanitize_document() {
     sanitize_fences "$1" | awk '
         {
             line = $0
+            if (line ~ /^[ \t]{4,}/) {
+                print ""
+                next
+            }
             gsub(/`[^`]*`/, "", line)
             gsub(/<!--.*-->/, "", line)
             print line

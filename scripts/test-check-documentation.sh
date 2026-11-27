@@ -10,7 +10,7 @@ alias_root="$(dirname "$fixture")/documentation-alias-$$"
 scratch_dir=".scr""atch"
 local_path="/ho""me/alice/notes.md"
 fake_token="ghp_""abcdefghijklmnopqrstuvwxyz"
-trap 'rm -rf "$fixture"; rm -f "$output" "$outside" "$alias_root"' EXIT
+trap 'rm -rf "$fixture"; rm -f "$output" "$outside"; rm -rf "$alias_root"' EXIT
 
 fail() {
     echo "FAIL: $1" >&2
@@ -124,15 +124,23 @@ write_doc "docs/valid.md" \
     "The $scratch_dir/ directory is local-only."
 assert_accept "valid document" "docs/valid.md"
 
-if ln -s "$fixture" "$alias_root" 2>/dev/null; then
-    if ! (cd "$alias_root" && bash scripts/check-documentation.sh --files docs/valid.md) >"$output" 2>&1; then
-        fail "expected acceptance through an aliased repository root"
-    fi
-    if [ -s "$output" ]; then
-        fail "expected empty output for an aliased repository root"
-    fi
-    rm -f "$alias_root"
-fi
+case "${OSTYPE:-}" in
+    msys*|cygwin*)
+        # Git Bash may copy or junction the directory instead of creating a
+        # symlink. The normal fixture already exercises the Windows path mapping.
+        ;;
+    *)
+        if ln -s "$fixture" "$alias_root" 2>/dev/null && [ -L "$alias_root" ]; then
+            if ! (cd "$alias_root" && bash scripts/check-documentation.sh --files docs/valid.md) >"$output" 2>&1; then
+                fail "expected acceptance through an aliased repository root"
+            fi
+            if [ -s "$output" ]; then
+                fail "expected empty output for an aliased repository root"
+            fi
+        fi
+        rm -rf "$alias_root"
+        ;;
+esac
 
 write_doc "docs/broken-link.md" \
     "# Broken link" \

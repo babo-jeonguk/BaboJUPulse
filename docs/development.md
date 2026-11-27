@@ -56,6 +56,34 @@ Do not format unrelated files. When formatting is needed, format only the files 
 
 Required checks, suppression approval, analyzer changes, gate integrity, and enforcement limitations are defined in [Quality gates](agents/quality-gates.md). Do not duplicate or weaken those rules here.
 
+## Workflow scripts
+
+`scripts/workflow/` provides deterministic entry points for the mechanical parts of the development workflow. They require Bash and Git; `gh` is required for GitHub operations, and Paseo is required only for workspace cleanup when the workspace is Paseo-managed. The individual commands above remain authoritative; the scripts sequence them and fail closed.
+
+| Script | Use |
+| --- | --- |
+| `scripts/workflow/workspace.sh prepare` | Verify the repository and issue, refresh `origin/main`, capture the base SHA, and detect an existing branch or worktree before a Paseo workspace operation. |
+| `scripts/workflow/workspace.sh verify` | Verify the worktree, branch, base ancestry, current `origin/main` ancestry, and clean state after workspace creation. |
+| `scripts/workflow/validate.sh targeted` | Run selected gates after a slice, for example `--format --build --test`, `--docs`, `--policy`, or `--workflow`. |
+| `scripts/workflow/validate.sh full` | Run restore, format, build, tests, repository-policy tests, documentation, public content, and workflow-script tests. |
+| `scripts/workflow/validate.sh docs` | Run documentation and public-content checks only. |
+| `scripts/workflow/validate.sh range` | Verify and print a base-to-head review range, commit count, and diffstat. |
+| `scripts/workflow/merge.sh inspect` | Read-only merge-readiness inspection against an explicit verified SHA. |
+| `scripts/workflow/merge.sh execute` | Merge only after inspection passes, using the original verified SHA as `--match-head-commit`. |
+| `scripts/workflow/cleanup.sh inspect` | Read-only post-merge cleanup inspection. |
+| `scripts/workflow/cleanup.sh execute` | Verify the merge, delete a safe remote branch, fast-forward local `main`, archive the Paseo workspace, remove a clean worktree, and delete the merged local branch. |
+
+Run `scripts/workflow/<script>.sh --help` for the exact options. The scripts report the repository, commit, dirty state, checks, and results. A failed required check exits nonzero; a concurrent HEAD or working-tree change during validation exits with status 3. Do not treat a script result as permission to skip review, documentation freshness, or a maintainer decision.
+
+Run the workflow-script tests directly:
+
+```bash
+bash scripts/test-workflow.sh
+```
+
+They use temporary Git repositories and stubbed GitHub/Paseo commands; they never mutate GitHub or a real workspace.
+
+
 ## Documentation validation
 
 Run the documentation checks directly when you change Markdown, links, contributor guidance, or workflow documentation. They do not build the application:
@@ -67,7 +95,7 @@ bash scripts/check-documentation.sh
 
 The checker validates relative links, heading fragments, Git-ignored targets, local absolute paths, table shape, fenced-code closure, and the public-content policy. The repository-policy test invokes the same script, so there is one implementation of the rules. Policy and limitations are in [Quality gates](agents/quality-gates.md#documentation-validation).
 
-The separate [documentation workflow](../.github/workflows/docs.yml) runs the same checks on every pull request and push to `main`. It is not a branch-protection required check; the existing `build` workflow remains required and still runs on documentation-only commits.
+The separate [documentation workflow](../.github/workflows/docs.yml) runs the same checks, the workflow-script tests, and the public-content tests on every pull request and push to `main`. It is not a branch-protection required check; the existing `build` workflow remains required and still runs on documentation-only commits.
 
 ## Tests
 
@@ -103,7 +131,7 @@ The checker reports only a rule identifier, safe file label, and line number. It
 
 External contributors start at [CONTRIBUTING.md](../CONTRIBUTING.md). They may use any editor, IDE, or local workflow; Paseo and the internal agent orchestration are not required.
 
-The internal sequence is defined in [Development workflow](agents/development-workflow.md): issue and readiness, isolated workspace, slice-based implementation, independent review, PR, documentation freshness review, and merge with cleanup. Branch naming, commit messages, publication, and local-only artifact rules are in [GitHub operations](agents/github-operations.md). Required validation and review gates are in [Quality gates](agents/quality-gates.md). The PR Summary and Merge Danger guidance is in [Pull request](agents/pull-request.md).
+The internal sequence is defined in [Development workflow](agents/development-workflow.md): issue and readiness, isolated workspace, slice-based implementation, independent review, PR, documentation freshness review, and merge with cleanup. Branch naming, commit messages, publication, and local-only artifact rules are in [GitHub operations](agents/github-operations.md). Required validation and review gates are in [Quality gates](agents/quality-gates.md). The PR Summary and Merge Danger guidance is in [Pull request](agents/pull-request.md). Canonical product terminology is in [GLOSSARY.md](../GLOSSARY.md) and [Domain guidance](agents/domain.md).
 
 ## Windows-specific validation
 

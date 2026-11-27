@@ -15,10 +15,27 @@ The required CI workflow is [`.github/workflows/ci.yml`](../../.github/workflows
 | Repository policy | Syntax- and configuration-aware checks described below |
 | Documentation | Relative links, heading fragments, ignored and local-only targets, table shape, fence closure, and public-content policy |
 | Public content | Publication policy and local-reference checks |
+| Workflow scripts | Synthetic Git repositories and stubbed GitHub/Paseo commands for workspace, validation, merge, and cleanup behavior |
 | CodeQL | C# security analysis; advisory, not required |
 | Dependency review | New dependency vulnerabilities and licenses; advisory, not required |
 
 The exact quality-gate commands are in [Development](../development.md#quality-gates); the repository-policy and public-content commands are in [Development tests](../development.md#tests); the documentation commands are in [Development documentation validation](../development.md#documentation-validation). Do not duplicate them in new documents.
+
+## Workflow automation
+
+[`scripts/workflow/`](../../scripts/workflow/) is the deterministic entry point for workspace preparation, validation, merge inspection and execution, and cleanup. It sequences the existing gates; it does not replace or weaken them.
+
+- `validate.sh full` runs restore, format, build, tests, repository-policy tests, documentation, public content, and workflow-script tests.
+- `validate.sh targeted` runs only the named checks after a slice.
+- `validate.sh docs` runs documentation and public-content checks only.
+- `validate.sh range` verifies and prints a review range.
+- `merge.sh` separates read-only inspection from execution and requires the explicit verified SHA. It does not decide whether a review finding is acceptable.
+- `cleanup.sh` is idempotent and retains anything it cannot remove safely.
+
+`scripts/test-workflow.sh` supplies synthetic Git repositories and stubbed GitHub/Paseo commands. It runs locally and in the documentation workflow. A change to a workflow script needs its test coverage and review; do not treat the script's convenience as a reason to skip the underlying gate.
+
+A validation result applies only to the commit it names. `validate.sh` exits with status 3 when HEAD or the working tree changes during the run, because the evidence may no longer describe the inspected state. A merge script result is mechanical evidence, not an architecture approval or a substitute for authorized engineering judgment.
+
 
 ## Enforcement coverage
 
@@ -118,7 +135,7 @@ The checker validates:
 - Fenced code blocks are closed.
 - Documentation files satisfy the public-content policy, using the existing checker rather than a second pattern set.
 
-The [documentation workflow](../../.github/workflows/docs.yml) runs the checker, its synthetic tests, and the public-content tests on every pull request and push to `main`. It has no `paths` or `paths-ignore` filter, so it cannot be skipped into a permanently pending state. The existing `build` workflow remains the only branch-protection required check; the merge procedure requires the documentation result on the final head. Adding the documentation job to branch protection, or removing the required `build` coverage, needs explicit maintainer authorization.
+The [documentation workflow](../../.github/workflows/docs.yml) runs the checker, its synthetic tests, the public-content tests, and the workflow-script tests on every pull request and push to `main`. It has no `paths` or `paths-ignore` filter, so it cannot be skipped into a permanently pending state. The existing `build` workflow remains the only branch-protection required check; the merge procedure requires the documentation result on the final head. Adding the documentation job to branch protection, or removing the required `build` coverage, needs explicit maintainer authorization.
 
 A documentation-only commit after review does not change CI scope. It still triggers the full required `build` check and the documentation workflow. The narrow review exception in [Code review](code-review.md#7-documentation-only-follow-up-after-approval) changes review effort, not the validation that must pass on the final head.
 
@@ -180,3 +197,6 @@ A repository-controlled guard is **not tamper-proof**. An agent with permission 
 - Architecture dependency tests and provider-boundary tests are deferred until separate assemblies or namespaces exist. See [ADR-0002](../adr/0002-static-analysis-and-architecture-enforcement.md).
 - The null-forgiving check rejects the operator; it does not prove that every other nullable annotation or nullability contract is honest.
 - An agent that can edit both code and validation can weaken a repository-controlled check. Maintainer review is required for any change to `.editorconfig`, `Directory.Build.props`, `BannedSymbols.txt`, `CodeMetricsConfig.txt`, the policy tests, `scripts/check-public-content.sh`, `scripts/check-documentation.sh`, or the workflows under `.github/workflows/`.
+- The workflow scripts are mechanical aids. They do not decide whether an architecture change is acceptable, whether a review finding is valid, or whether a documentation-only delta is substantive.
+- `merge.sh` reads the PR head and check results at the moment it runs. A head change after inspection blocks the merge, but the script cannot prevent a concurrent GitHub-side change after it passes the verified SHA.
+- `cleanup.sh` relies on the installed Paseo archive behavior. Verify `paseo --version` and the archive result when the version changes.

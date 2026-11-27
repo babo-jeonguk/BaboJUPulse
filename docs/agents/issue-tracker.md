@@ -106,31 +106,34 @@ An implementation-specification form that is filled in but has unresolved questi
 - Add evidence and decisions as comments; keep the specification in the body current.
 - Use native issue dependencies or a `Blocked by: #<n>` line when a dependency is unresolved.
 - When scope changes, update acceptance criteria through the maintainer decision process, not silently in the implementation.
+- Remove `ready-for-agent` or `ready-for-human` when implementation starts with a linked PR, when the scope changes, or when the issue closes. A readiness label must not remain on a closed issue.
 - Close when the work is complete, rejected, duplicated, or no longer relevant.
 
 ## Lifecycle handling
 
 | Situation | Action |
 | --- | --- |
-| Duplicate | Add `duplicate`, comment with the canonical issue, and close. Preserve the historical classification. |
+| Duplicate | Remove any readiness label, add `duplicate`, comment with the canonical issue, and close. Preserve the historical classification. |
 | Incomplete or unclear | Add `needs-info`, comment with the exact missing information, and keep it open. Remove `needs-info` when the reporter supplies it. |
 | Blocked | Add `blocked`, record the blocker and its issue or external dependency. Remove `blocked` and re-triage when the blocker closes. |
-| Rejected as not actionable or not a repository issue | Add `invalid`, explain why, and close. |
-| Rejected as intentionally out of scope | Add `wontfix`, explain why, and close. |
-| Question or clarification | Use `question`; answer it, then close unless it produced actionable work. |
-| Completed | Close the issue through the merged PR's closing keyword or manually with a merge reference. Do not add a redundant completed label. |
+| Rejected as not actionable or not a repository issue | Remove any readiness label, add `invalid`, explain why, and close. |
+| Rejected as intentionally out of scope | Remove any readiness label, add `wontfix`, explain why, and close. |
+| Question or clarification | Use `question`; answer it, then close unless it produced actionable work. Remove any readiness label before closing. |
+| Completed | Remove `ready-for-agent` or `ready-for-human`, then close the issue through the merged PR's closing keyword or manually with a merge reference. Do not add a redundant completed label. |
+
+Closing an issue removes any readiness label because it no longer describes the issue's current state. Work type, area, priority, and disposition labels remain historical classification.
 
 ## Required outputs
 
 - An issue number and URL.
 - Work type, functional area, and priority labels where applicable.
-- At most one lifecycle label: `needs-triage`, `needs-info`, `blocked`, `ready-for-agent`, or `ready-for-human`. A closed issue with a disposition, or an in-progress issue after a ready label is removed, may have none.
+- At most one lifecycle label: `needs-triage`, `needs-info`, `blocked`, `ready-for-agent`, or `ready-for-human`. A closed issue has no readiness label; an in-progress issue may also have none after the readiness label is removed.
 - A body that states the acceptance criteria and verification for implementation work.
 - A closing reference when the issue is resolved.
 
 ## Exit criteria
 
-- The issue is closed with a recorded reason, **or**
+- The issue is closed with a recorded reason and no readiness label remains, **or**
 - The issue is open, correctly labelled, and either ready or explicitly waiting on information, a dependency, or maintainer judgment.
 
 ## Prohibited actions

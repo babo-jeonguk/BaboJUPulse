@@ -75,6 +75,13 @@ bash scripts/test-public-content.sh
 bash scripts/check-public-content.sh --tracked
 ```
 
+If you changed documentation, also run:
+
+```bash
+bash scripts/test-check-documentation.sh
+bash scripts/check-documentation.sh
+```
+
 A successful build is not proof of Windows runtime behavior. State what you actually verified and what you could not verify.
 
 ## Tests
@@ -97,11 +104,13 @@ gh pr create --title "<type>: <subject>" --body-file "<body-file>" --base main
 
 Interactive `gh pr create --template .github/PULL_REQUEST_TEMPLATE.md` is acceptable only if you save the completed body and run the checker before submitting. `gh pr create --body` overrides `--template`, and API-based creation does not populate repository templates. Fill in the actual evidence; do not leave placeholder claims. Use "not applicable" or "unverified" when a check does not apply or did not run.
 
-The required CI check is `build` on `windows-latest`. CodeQL and dependency review are advisory unless the maintainer says otherwise.
+Use a Summary that shows the shape of the change with the smallest clear representation, then keep the detailed evidence in the other sections. The Merge Danger section classifies the change as a two-way or one-way door and records blast radius, failure scenarios, mitigation, and rollback. For a one-way door, explain why a Git revert is insufficient and ask the maintainer before merging.
+
+The required CI check is `build` on `windows-latest`. A separate `documentation` workflow validates documentation and runs on every pull request. CodeQL and dependency review are advisory unless the maintainer says otherwise. A later documentation-only commit does not skip the required build or documentation checks.
 
 ## Review and remediation
 
-A maintainer reviews the change against the issue and the repository rules. Address blocking findings with code changes and evidence, then push a new commit. Approval of an earlier commit does not cover later changes; the reviewer must approve the current head.
+A maintainer reviews the change against the issue and the repository rules. Address blocking findings with code changes and evidence, then push a new commit. Approval of an earlier commit does not cover later changes; the reviewer must approve the current head unless the only later change is an ordinary documentation update recorded under the internal documentation-only exception. Production code, executable configuration, tests, dependencies, quality gates, and substantive policy changes always return to review.
 
 If you disagree with a finding, explain it with evidence and ask for a decision. Do not weaken a gate or rewrite the acceptance criteria to make the change pass. The internal review and remediation process is described in [Code review](docs/agents/code-review.md) and [Review remediation](docs/agents/review-remediation.md); external contributors only need the outcome.
 

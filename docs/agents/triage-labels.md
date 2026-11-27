@@ -39,10 +39,12 @@ Choose the primary purpose. If work genuinely spans types, split it; do not appl
 | `needs-triage` | New or returned to the maintainer for classification | An issue has not been scoped and labelled | Work type, area, priority, and readiness are decided |
 | `needs-info` | Waiting on the reporter or another source for missing information | A specific answer is required before the issue can be scoped | The information arrives and triage resumes |
 | `blocked` | Cannot proceed until a dependency is resolved | A linked issue, external dependency, or decision is unresolved | The blocker closes or the maintainer removes the dependency |
-| `ready-for-agent` | Scoped for implementation by an agent | All readiness conditions are met and the issue is suitable for delegated implementation | Implementation starts and the issue is linked to a PR, or the scope changes |
-| `ready-for-human` | Scoped for human implementation or a human decision | All readiness conditions are met but the work needs judgment, access, or manual verification that should not be delegated | Implementation starts, or the scope changes |
+| `ready-for-agent` | Scoped for implementation by an agent | All readiness conditions are met and the issue is suitable for delegated implementation | Implementation starts with a linked PR, the scope changes, or the issue closes |
+| `ready-for-human` | Scoped for human implementation or a human decision | All readiness conditions are met but the work needs judgment, access, or manual verification that should not be delegated | Implementation starts with a linked PR, the scope changes, or the issue closes |
 
 At most one lifecycle label is active. `blocked` replaces a ready state; do not leave a blocked issue marked ready. Removing `blocked` returns the issue to triage before a ready label is reapplied.
+
+A closed issue must not keep `ready-for-agent` or `ready-for-human`. The readiness label describes work still waiting to be done; it is not a historical classification. Preserve the work type, area, priority, and any disposition instead. Remove the readiness label when implementation starts with a linked PR, when the scope changes, or when any closure path is taken.
 
 There is no separate `triaged` label. An issue is triaged when it has a work type, area, priority, and either a ready label or an explicit waiting state. This avoids a label that duplicates the lifecycle.
 

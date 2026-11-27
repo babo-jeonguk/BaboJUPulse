@@ -34,13 +34,15 @@ Authoritative for repository operations and external publication. It does not de
 
 ## Pull requests and merge
 
-- PR preparation, template use, evidence, and CI verification are owned by [Pull request](pull-request.md). Merge preconditions and cleanup are owned by [PR merge](pr-merge.md).
-- Keep the body self-contained: linked issue, acceptance-criteria coverage, exact reviewed commit SHA, review outcome, actual verification, unverified behavior, risk, and rollback. Do not fabricate a result for a check that did not run.
+- PR preparation, template use, evidence, and CI verification are owned by [Pull request](pull-request.md). Merge preconditions, documentation freshness, and cleanup are owned by [PR merge](pr-merge.md).
+- Keep the body self-contained: linked issue, smallest-sufficient Summary, acceptance-criteria coverage, exact reviewed implementation commit, final head, any documentation-only delta, review outcome, actual verification, unverified behavior, documentation review, and Merge Danger. Do not fabricate a result for a check that did not run.
 - The required status check is `build` on `windows-latest`. It runs restore/audit, formatting, build, tests, repository-policy checks, and public-content checks. The `pull_request` trigger includes `edited`, so a title or body edit is revalidated by CI.
+- The separate `documentation` workflow runs lightweight documentation validation on every pull request and push to `main`. It is not a branch-protection required check; the merge procedure requires its result on the final head. Do not add path filters that could leave a required check pending.
 - CodeQL and dependency review are advisory checks, not required by branch protection.
-- Merge with a merge commit. Squash and rebase merges are disabled; head branches are deleted after merge. Auto-merge is enabled.
+- Merge with a merge commit. Squash and rebase merges are disabled; head branches are deleted after merge. Auto-merge is enabled. Use `gh pr merge --match-head-commit <final-head-sha>` so the verified head cannot change silently before the merge.
 - Required approvals are `0` because the repository has one maintainer. Administrators are subject to branch protection.
-- Do not change merge strategy, repository visibility, licensing, approval requirements, or branch protection without explicit maintainer authorization.
+- Do not change merge strategy, repository visibility, licensing, approval requirements, required checks, or branch protection without explicit maintainer authorization.
+- Local `main`, remote branches, and worktrees are synchronized and cleaned up after merge by [PR merge](pr-merge.md). The GitHub settings describe server-side branch deletion, not the complete local cleanup.
 
 ## Public communication
 
@@ -57,8 +59,8 @@ Allowed evidence:
 Do not publish:
 
 - Credentials, tokens, cookies, account identifiers, or private provider data.
-- Local absolute paths.
-- Agent session URLs, session IDs, or local session paths.
+- Local absolute paths or local worktree paths.
+- Paseo workspace identifiers, agent session URLs, session IDs, or local session paths.
 - References to local-only working artifacts or inaccessible local files.
 - Raw private logs, unredacted provider responses, or local configuration.
 - Claims about behavior, tests, or CI that were not actually verified.
@@ -87,7 +89,8 @@ Do not publish:
 - The local commit hook runs the same checker on commit messages.
 - CI checks the PR title and body, PR commit messages, all tracked text files, and the synthetic checker tests. It is merge-blocking, but it runs **after** the PR content is already visible. It is post-publication detection, not prevention of initial disclosure.
 - The `pull_request` trigger includes `edited`, so a changed PR title or body is revalidated. Run the local checker before editing; do not rely on CI to protect the first visible version.
-- Tracked Markdown links are checked against Git's actual ignore rules. The publication checker targets the designated `.scratch/` workspace and local absolute paths, not every ignored build output such as `bin/` or `obj/`.
+- Tracked Markdown links, heading fragments, and local-only targets are checked by [documentation validation](../development.md#documentation-validation). The publication checker targets the designated `.scratch/` workspace and local absolute paths, not every ignored build output such as `bin/` or `obj/`.
+- A documentation-only follow-up still requires the documentation workflow and the full `build` check to pass on the final head. Do not describe a documentation-only pull request as exempt from code CI when it also contains a reviewed implementation.
 - Issue and comment publication has no server-side pre-publication guard. The local checker is the practical control; review and edit before posting.
 - GitHub secret scanning and push protection cover known secret formats, not local paths or private context.
 - If prohibited content is published, edit or delete it and rotate any exposed credential. Do not assume deletion removes every copy or cache.
@@ -95,6 +98,7 @@ Do not publish:
 ## GitHub enforcement and limits
 
 - `main` requires a pull request, the `build` check, an up-to-date branch, and resolved conversations. Force pushes and deletions are blocked; administrators are included.
+- The separate `documentation` workflow runs on every pull request and push to `main` but is not required by branch protection until the maintainer changes that setting. The merge procedure still requires its final-head result.
 - Secret scanning and push protection are enabled. Dependabot alerts and security updates are enabled. Private vulnerability reporting is enabled through [SECURITY.md](../../SECURITY.md).
 - Secret scanning non-provider patterns and validity checks are unavailable on the current plan.
 - The default Actions token is read-only. All Actions are allowed, and commit-SHA pinning is not enforced; workflows use major version tags and Dependabot updates them weekly.

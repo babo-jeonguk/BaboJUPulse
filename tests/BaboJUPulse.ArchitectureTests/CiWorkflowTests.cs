@@ -139,6 +139,49 @@ public sealed class CiWorkflowTests
     }
 
     [Fact]
+    public void DocumentationWorkflowRunsOnEveryPullRequest()
+    {
+        var root = LoadWorkflow("docs.yml");
+        var trigger = Child(root, "on") ?? Child(root, "true");
+        var triggerMapping = Assert.IsType<YamlMappingNode>(trigger);
+        Assert.Null(Child(triggerMapping, "pull_request_target"));
+
+        var pullRequest = Child(triggerMapping, "pull_request");
+        Assert.NotNull(pullRequest);
+        if (pullRequest is YamlMappingNode pullRequestMapping)
+        {
+            Assert.Null(Child(pullRequestMapping, "paths"));
+            Assert.Null(Child(pullRequestMapping, "paths-ignore"));
+        }
+
+        var permissions = RequireMapping(root, "permissions");
+        Assert.Equal("read", StringValue(permissions, "contents"));
+        AssertReadOnlyPermissions(permissions, "documentation workflow");
+
+        var job = RequireMapping(RequireMapping(root, "jobs"), "documentation");
+        Assert.Equal("documentation", StringValue(job, "name"));
+        Assert.Null(Child(job, "if"));
+        Assert.Null(Child(job, "continue-on-error"));
+
+        var runs = RequireSequence(job, "steps")
+            .Children
+            .OfType<YamlMappingNode>()
+            .Select(step => StringValue(step, "run"))
+            .OfType<string>()
+            .ToList();
+
+        Assert.True(
+            runs.Any(run => run.Contains("bash scripts/check-documentation.sh", StringComparison.Ordinal)),
+            "Missing documentation validation command");
+        Assert.True(
+            runs.Any(run => run.Contains("bash scripts/test-check-documentation.sh", StringComparison.Ordinal)),
+            "Missing documentation validation tests");
+        Assert.True(
+            runs.Any(run => run.Contains("bash scripts/check-public-content.sh --tracked", StringComparison.Ordinal)),
+            "Missing public-content check in the documentation workflow");
+    }
+
+    [Fact]
     public void SecurityWorkflowsExist()
     {
         string[] workflows = ["codeql.yml", "dependency-review.yml"];
@@ -150,12 +193,12 @@ public sealed class CiWorkflowTests
         }
     }
 
-    private static string WorkflowPath() =>
-        Path.Combine(RepositoryPaths.Root, ".github", "workflows", "ci.yml");
+    private static string WorkflowPath(string name) =>
+        Path.Combine(RepositoryPaths.Root, ".github", "workflows", name);
 
-    private static YamlMappingNode LoadWorkflow()
+    private static YamlMappingNode LoadWorkflow(string name = "ci.yml")
     {
-        using var reader = File.OpenText(WorkflowPath());
+        using var reader = File.OpenText(WorkflowPath(name));
         var stream = new YamlStream();
         stream.Load(reader);
         return (YamlMappingNode)stream.Documents[0].RootNode;

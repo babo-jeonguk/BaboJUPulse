@@ -9,7 +9,7 @@ Each document has one authoritative responsibility.
 | [AGENTS](../AGENTS.md) | Agent entry point: invariants and task routing |
 | [Product scope](product-scope.md) | Intended capabilities, constraints, and non-goals |
 | [Architecture](architecture.md) | Current shape, boundaries, and open decisions |
-| [Development](development.md) | Setup, build/run, test execution, and troubleshooting |
+| [Development](development.md) | Setup, build/run, test execution, documentation validation commands, and troubleshooting |
 | [Coding standards](../CODING_STANDARDS.md) | Acceptable code, architectural constraints, and prohibited practices |
 | [Agent operations](agents/README.md) | Map of agent operating procedures |
 | [Development workflow](agents/development-workflow.md) | Overall workflow sequence, stage transitions, and escalation |
@@ -19,10 +19,10 @@ Each document has one authoritative responsibility.
 | [Implementation](agents/implementation.md) | Slice-based implementation and handoff to review |
 | [Code review](agents/code-review.md) | Independent review criteria, findings, and approval SHA |
 | [Review remediation](agents/review-remediation.md) | Finding correction and re-review |
-| [Pull request](agents/pull-request.md) | PR template, evidence, publication checks, and CI |
-| [PR merge](agents/pr-merge.md) | Merge preconditions, post-merge verification, and cleanup |
+| [Pull request](agents/pull-request.md) | PR template, Summary, Merge Danger, evidence, publication checks, and CI |
+| [PR merge](agents/pr-merge.md) | Merge preconditions, documentation freshness, post-merge verification, and cleanup |
 | [GitHub operations](agents/github-operations.md) | Publication, local-only artifacts, and repository settings |
-| [Quality gates](agents/quality-gates.md) | Verification, analyzer enforcement, suppressions, and limitations |
+| [Quality gates](agents/quality-gates.md) | Verification, documentation validation, analyzer enforcement, suppressions, and limitations |
 | [ADRs](adr/) | Accepted decisions and their rationale |
 | [Security](../SECURITY.md) | Vulnerability reporting and secret handling |
 

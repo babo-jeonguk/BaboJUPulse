@@ -84,7 +84,61 @@ The review output states:
 - **Evidence inspected**: commands, test results, or CI runs actually checked.
 - **Unverified areas**: behavior that could not be verified in this environment.
 
-Approval applies only to the named commit. It does not approve a later commit, a rebased branch, or an unrecorded edit.
+Approval applies only to the named commit. It does not approve a later commit, a rebased branch, or an unrecorded edit, except for the narrow documentation-only delta described below.
+
+### 7. Documentation-only follow-up after approval
+
+A change may be approved and then receive ordinary documentation updates during the pre-merge documentation freshness review. Repeating the complete implementation review solely because the README or an architecture description was corrected adds review overhead without adding assurance about the reviewed implementation.
+
+#### Ordinary documentation updates
+
+The following are ordinary documentation updates when they accurately describe the already-reviewed implementation:
+
+- Updating `README.md` to describe reviewed behavior.
+- Updating architecture or product descriptions to reflect the reviewed implementation.
+- Correcting outdated descriptions, Markdown formatting, links, or typographical errors.
+- Updating documentation indexes and routing references without changing the underlying policy.
+
+For a purely ordinary documentation delta:
+
+- Do not request another independent code review.
+- Run the applicable documentation validation checks.
+- Verify that the documentation accurately describes the reviewed implementation.
+- Confirm that no production code, executable configuration, dependency, test, or quality-gate change was introduced.
+- Keep the previous review valid for the previous implementation.
+
+Do not fabricate a new review approval for the documentation commit. Record:
+
+- The previously approved implementation SHA.
+- The final PR head SHA.
+- The documentation-only delta between them.
+- The documentation validation result.
+- The reason independent code re-review was not required.
+
+Verify the complete delta between the approved implementation and the final head:
+
+```bash
+git diff --name-status <approved-sha>..<final-head-sha>
+git log --oneline <approved-sha>..<final-head-sha>
+git diff <approved-sha>..<final-head-sha>
+```
+
+Examining only the latest commit is insufficient. If the delta contains anything outside documentation, or if it changes substantive requirements, return to the normal review procedure for the affected work.
+
+#### Substantive documentation changes
+
+File extension alone does not make a change harmless. A change that modifies any of the following is substantive and needs the appropriate independent review or maintainer decision:
+
+- Engineering requirements or coding rules.
+- Security or privacy policy.
+- Architecture contracts or accepted decisions.
+- Quality-gate, CI, analyzer, or repository policy.
+- Issue acceptance criteria or scope.
+- Mandatory agent instructions or workflow obligations.
+
+A typo or link correction in a policy document may still be ordinary if it does not change meaning. A substantive edit to the same document is not.
+
+If production code, executable configuration, dependencies, tests, scripts, or quality-gate behavior changes after approval, return to the existing code review procedure. The documentation-only exception must not weaken implementation review requirements.
 
 ## Required outputs
 
@@ -92,11 +146,13 @@ Approval applies only to the named commit. It does not approve a later commit, a
 - Blocking and non-blocking findings in the required format.
 - Evidence inspected and unverified areas.
 - A clear handoff to remediation when changes are requested.
+- For a documentation-only follow-up, the approved implementation SHA, final head, delta, validation result, and reason no re-review was required.
 
 ## Exit criteria
 
 - The review approves the exact head commit and has no blocking findings, **or**
-- Blocking findings are recorded and handed to [Review remediation](review-remediation.md).
+- Blocking findings are recorded and handed to [Review remediation](review-remediation.md), **or**
+- The implementation is approved, a later delta is proven documentation-only under the exception above, and the required record and validation are complete.
 
 ## Prohibited actions
 
@@ -106,6 +162,8 @@ Approval applies only to the named commit. It does not approve a later commit, a
 - Treating a passing build as proof of runtime behavior.
 - Hiding a gate change, suppression, or test gap as a style comment.
 - Turning a non-blocking preference into a blocking demand without a rule or requirement.
+- Treating a `.md` change as documentation-only without inspecting its content and the complete approved-to-final delta.
+- Using the documentation-only exception to avoid review of a substantive policy, contract, security, quality-gate, or agent-instruction change.
 - Publishing credentials, private data, local absolute paths, or local-only artifact references in the review.
 
 ## References
@@ -114,4 +172,5 @@ Approval applies only to the named commit. It does not approve a later commit, a
 - [Implementation](implementation.md) for the preceding stage.
 - [Review remediation](review-remediation.md) for the following stage.
 - [Coding standards](../../CODING_STANDARDS.md), [architecture](../architecture.md), [ADRs](../adr/), and [quality gates](quality-gates.md) for review criteria.
+- [Development](../development.md#documentation-validation) for the documentation validation commands.
 - [GitHub operations](github-operations.md) for review publication and local-only artifact policy.

@@ -29,8 +29,9 @@ Read the linked document before the matching action. Do not load every document.
 | Slice-based implementation and tests | [Implementation](docs/agents/implementation.md) |
 | Independent review and finding records | [Code review](docs/agents/code-review.md) |
 | Remediation and re-review | [Review remediation](docs/agents/review-remediation.md) |
-| PR preparation, evidence, and CI | [Pull request](docs/agents/pull-request.md) |
-| Merge, post-merge verification, cleanup | [PR merge](docs/agents/pr-merge.md) |
+| PR preparation, Summary, evidence, and CI | [Pull request](docs/agents/pull-request.md) |
+| Merge, documentation freshness, post-merge verification, cleanup | [PR merge](docs/agents/pr-merge.md) |
+| Documentation validation | [Quality gates](docs/agents/quality-gates.md#documentation-validation), [Development](docs/development.md#documentation-validation) |
 | Issues, PRs, comments, commits, publication | [GitHub operations](docs/agents/github-operations.md) |
 | External contributor entry point | [Contributing](CONTRIBUTING.md) |
 | Documentation map | [Docs](docs/README.md), [agent docs](docs/agents/README.md) |

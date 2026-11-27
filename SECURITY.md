@@ -10,7 +10,7 @@ Do not open a public issue for a security problem. Use GitHub's private vulnerab
 
 <https://github.com/babo-jeonguk/BaboJUPulse/security/advisories/new>
 
-Include the affected commit or version, the steps to reproduce, the impact, and any suggested fix. Do not include real credentials, tokens, account identifiers, or provider responses. Redact logs before attaching them.
+Include the affected commit or version, the steps to reproduce, the impact, and any suggested fix. Do not include real credentials, tokens, account identifiers, local absolute paths, references to local-only working artifacts, or provider responses. Redact logs before attaching them.
 
 ## Scope
 

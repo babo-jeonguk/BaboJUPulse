@@ -2,6 +2,7 @@ using System.Xml.Linq;
 
 namespace BaboJUPulse.ArchitectureTests;
 
+[Trait("Category", "RepositoryPolicy")]
 public sealed class ProjectConfigurationTests
 {
     [Fact]

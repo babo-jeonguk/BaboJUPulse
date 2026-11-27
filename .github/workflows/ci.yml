@@ -27,6 +27,27 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check public content
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -n "${PR_TITLE:-}" ] || [ -n "${PR_BODY:-}" ]; then
+            printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" | bash scripts/check-public-content.sh
+          fi
+          if [ -n "${BASE_SHA:-}" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            git log --format=%B "$BASE_SHA..$HEAD_SHA" | bash scripts/check-public-content.sh
+          else
+            git log --format=%B -1 "$HEAD_SHA" | bash scripts/check-public-content.sh
+          fi
+          bash scripts/check-public-content.sh --tracked
+          bash scripts/test-public-content.sh
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
@@ -43,7 +64,10 @@ jobs:
         run: dotnet build BaboJUPulse.slnx -c Release --no-restore -warnaserror
 
       - name: Test
-        run: dotnet test BaboJUPulse.slnx -c Release --no-build --logger "trx;LogFileName=test-results.trx"
+        run: dotnet test BaboJUPulse.slnx -c Release --no-build --logger "trx;LogFileName=test-results.trx" -- RunConfiguration.TreatNoTestsAsError=true
+
+      - name: Verify repository policy
+        run: dotnet test tests/BaboJUPulse.ArchitectureTests/BaboJUPulse.ArchitectureTests.csproj -c Release --no-build --filter "Category=RepositoryPolicy" -- RunConfiguration.TreatNoTestsAsError=true
 
       - name: Upload test results
         if: always()

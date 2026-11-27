@@ -22,8 +22,9 @@
 #   --main-worktree <path>     Worktree that has main checked out in this repo.
 #   --remove-build-output      Explicitly remove known reproducible output
 #                              (generated files under bin, obj, TestResults,
-#                              and .binlog files). Mixed or unrecognized content
-#                              is retained, and the worktree is not removed.
+#                              and top-level .binlog files). Mixed or
+#                              unrecognized content is retained, and the
+#                              worktree is not removed.
 #   --repository <owner/name>  Require this GitHub repository.
 #
 # Run from a worktree that will remain after the issue worktree is removed.
@@ -35,7 +36,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 source "$script_dir/common.sh"
 
 usage() {
-    sed -n '2,30p' "${BASH_SOURCE[0]}"
+    sed -n '2,31p' "${BASH_SOURCE[0]}"
 }
 
 pr=""
@@ -258,7 +259,13 @@ remote_step() {
 
 main_identity_preflight() {
     local path=${main_worktree:-$(workflow_main_worktree)}
-    if [ -z "$path" ] || [ ! -d "$path" ]; then
+    if [ -z "$path" ]; then
+        return 0
+    fi
+    if [ ! -d "$path" ]; then
+        if [ -n "$main_worktree" ]; then
+            block "local_main_worktree_missing"
+        fi
         return 0
     fi
     if [ -n "$("$GIT_BIN" -C "$path" rev-parse --show-prefix 2>/dev/null)" ]; then
@@ -267,6 +274,9 @@ main_identity_preflight() {
     fi
     path="$(normalize_path "$path")"
     if [ ! -d "$path" ]; then
+        if [ -n "$main_worktree" ]; then
+            block "local_main_worktree_missing"
+        fi
         return 0
     fi
     local root_common main_common
@@ -295,7 +305,11 @@ main_step() {
     fi
     path="$(normalize_path "$path")"
     if [ ! -d "$path" ]; then
-        printf 'cleanup: local_main=absent path_missing=yes\n'
+        if [ -n "$main_worktree" ]; then
+            block "local_main_worktree_missing"
+        else
+            printf 'cleanup: local_main=absent path_missing=yes\n'
+        fi
         return 0
     fi
     if [ "$("$GIT_BIN" -C "$path" branch --show-current)" != "main" ]; then

@@ -172,7 +172,7 @@ scripts/workflow/cleanup.sh inspect \
   --main-worktree <main-worktree-path>
 ```
 
-Then execute the same inputs without `inspect` when the reported state is safe. Omit the optional identifiers when they can be discovered; the script accepts them to make the intended resources explicit. If the only ignored content is fully reproducible build output, add `--remove-build-output` explicitly. It removes only recognized generated files under `bin`, `obj`, and `TestResults`, plus `.binlog` files; a mixed or unrecognized file retains the whole worktree, so notes, logs, and other meaningful local artifacts are never removed merely because of their directory.
+Then execute the same inputs without `inspect` when the reported state is safe. Omit the optional identifiers when they can be discovered; the script accepts them to make the intended resources explicit. If the only ignored content is fully reproducible build output, add `--remove-build-output` explicitly. It removes only recognized generated files under `bin`, `obj`, and `TestResults`, plus top-level `.binlog` files; a mixed or unrecognized file retains the whole worktree, so notes, logs, and other meaningful local artifacts are never removed merely because of their directory.
 
 The script verifies and performs these steps:
 

@@ -353,10 +353,16 @@ workflow_reproducible_output_file() {
             ;;
         obj/*)
             case "$name" in
-                *.dll|*.pdb|*.mdb|*.obj|*.o|*.a|*.so|*.dylib|*.lib|*.exp|*.ilk|*.cache)
+                *.dll|*.pdb|*.mdb|*.obj|*.o|*.a|*.so|*.dylib|*.lib|*.exp|*.ilk|*.cache|*.deps.json|*.runtimeconfig.json)
                     return 0
                     ;;
-                *.cs|*.props|*.targets|*.json|*.editorconfig|*.binlog)
+                *.AssemblyInfo.cs|*.AssemblyAttributes.cs|*.GlobalUsings.g.cs|*.g.cs)
+                    return 0
+                    ;;
+                *.nuget.g.props|*.nuget.g.targets|*.nuget.dgspec.json|project.assets.json|project.nuget.cache)
+                    return 0
+                    ;;
+                *.GeneratedMSBuildEditorConfig.editorconfig|*.FileListAbsolute.txt|*.Up2Date|*.binlog)
                     return 0
                     ;;
             esac
@@ -475,67 +481,207 @@ workflow_paseo_workspaces_json() {
     printf '%s' "$output"
 }
 
-workflow_paseo_workspace_record() {
-    local id=$1
+workflow_paseo_workspaces() {
     local output
     if ! output="$(workflow_paseo_workspaces_json)"; then
         return 2
     fi
-    printf '%s\n' "$output" | awk -v wanted="$id" '
-        function field(text, name,    pattern, value) {
-            pattern = "\"" name "\"[[:space:]]*:[[:space:]]*\"[^\"]*\""
-            if (!match(text, pattern)) {
-                return ""
-            }
-            value = substr(text, RSTART, RLENGTH)
-            sub(/^[^:]*:[[:space:]]*"/, "", value)
-            sub(/"$/, "", value)
-            return value
+    printf '%s\n' "$output" | awk '
+        function hexval(c,    digits) {
+            digits = "0123456789abcdef"
+            c = tolower(c)
+            return index(digits, c) - 1
         }
-        BEGIN { sep = "\037"; RS = "}" }
-        {
-            id = field($0, "workspaceId")
-            if (id == wanted) {
-                print id sep field($0, "cwd") sep field($0, "project") sep field($0, "isolation")
-                found = 1
-                exit
+        function decode(s,    out, i, c, n, code) {
+            out = ""
+            for (i = 1; i <= length(s); i++) {
+                c = substr(s, i, 1)
+                if (c != "\\") {
+                    out = out c
+                    continue
+                }
+                i++
+                if (i > length(s)) {
+                    break
+                }
+                c = substr(s, i, 1)
+                if (c == "\"") out = out "\""
+                else if (c == "\\") out = out "\\"
+                else if (c == "/") out = out "/"
+                else if (c == "b") out = out "\b"
+                else if (c == "f") out = out "\f"
+                else if (c == "n") out = out "\n"
+                else if (c == "r") out = out "\r"
+                else if (c == "t") out = out "\t"
+                else if (c == "u") {
+                    code = 0
+                    for (n = 1; n <= 4; n++) {
+                        code = code * 16 + hexval(substr(s, i + n, 1))
+                    }
+                    if (code > 0 && code < 128) {
+                        out = out sprintf("%c", code)
+                    }
+                    i += 4
+                } else {
+                    out = out c
+                }
             }
+            return out
         }
+        function split_objects(text, objects,    i, c, instring, escape, depth, start, count) {
+            count = 0
+            instring = 0
+            escape = 0
+            depth = 0
+            start = 0
+            for (i = 1; i <= length(text); i++) {
+                c = substr(text, i, 1)
+                if (instring) {
+                    if (escape) escape = 0
+                    else if (c == "\\") escape = 1
+                    else if (c == "\"") instring = 0
+                    continue
+                }
+                if (c == "\"") {
+                    instring = 1
+                    continue
+                }
+                if (c == "{") {
+                    depth++
+                    if (depth == 1) start = i
+                    continue
+                }
+                if (c == "}" && depth > 0) {
+                    depth--
+                    if (depth == 0 && start > 0) {
+                        objects[++count] = substr(text, start, i - start + 1)
+                        start = 0
+                    }
+                }
+            }
+            return count
+        }
+        function object_field(obj, wanted,    i, c, ch, depth, key, text, j, value) {
+            depth = 0
+            key = ""
+            for (i = 1; i <= length(obj); i++) {
+                c = substr(obj, i, 1)
+                if (c == "{") {
+                    depth++
+                    continue
+                }
+                if (c == "}") {
+                    depth--
+                    continue
+                }
+                if (depth != 1) continue
+                if (c == "\"") {
+                    text = ""
+                    i++
+                    while (i <= length(obj)) {
+                        ch = substr(obj, i, 1)
+                        if (ch == "\\") {
+                            text = text ch substr(obj, i + 1, 1)
+                            i += 2
+                            continue
+                        }
+                        if (ch == "\"") break
+                        text = text ch
+                        i++
+                    }
+                    j = i + 1
+                    while (j <= length(obj) && substr(obj, j, 1) ~ /[ \t\r\n]/) j++
+                    if (substr(obj, j, 1) == ":") {
+                        key = text
+                        i = j
+                        while (i + 1 <= length(obj) && substr(obj, i + 1, 1) ~ /[ \t\r\n]/) i++
+                        continue
+                    }
+                    if (key == wanted) {
+                        return decode(text)
+                    }
+                    continue
+                }
+                if (key == wanted) {
+                    value = ""
+                    while (i <= length(obj)) {
+                        ch = substr(obj, i, 1)
+                        if (ch == "," || ch == "}") break
+                        value = value ch
+                        i++
+                    }
+                    gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", value)
+                    return value
+                }
+            }
+            return ""
+        }
+        function is_empty_array(text,    compact) {
+            compact = text
+            gsub(/[ \t\r\n]/, "", compact)
+            return compact == "[]"
+        }
+        { text = text $0 "\n" }
         END {
-            if (!found) {
-                exit 1
+            sep = "\037"
+            count = split_objects(text, objects)
+            if (count == 0) {
+                if (!is_empty_array(text)) exit 2
+                exit 0
             }
+            bad = 0
+            for (i = 1; i <= count; i++) {
+                id = object_field(objects[i], "workspaceId")
+                cwd = object_field(objects[i], "cwd")
+                if (id == "" || cwd == "") {
+                    bad = 1
+                    continue
+                }
+                print id sep cwd sep object_field(objects[i], "project") sep object_field(objects[i], "isolation")
+            }
+            if (bad) exit 2
         }
     '
 }
 
-workflow_paseo_workspace_id_for_cwd() {
-    local cwd=$1
-    local output
-    if ! output="$(workflow_paseo_workspaces_json)"; then
-        return 2
+workflow_paseo_workspace_record() {
+    local id=$1
+    local records
+    local status=0
+    local record_id record_cwd record_project record_isolation
+    records="$(workflow_paseo_workspaces)" || status=$?
+    if [ "$status" -ne 0 ]; then
+        return "$status"
     fi
-    printf '%s\n' "$output" | awk -v wanted="$cwd" '
-        function field(text, name,    pattern, value) {
-            pattern = "\"" name "\"[[:space:]]*:[[:space:]]*\"[^\"]*\""
-            if (!match(text, pattern)) {
-                return ""
-            }
-            value = substr(text, RSTART, RLENGTH)
-            sub(/^[^:]*:[[:space:]]*"/, "", value)
-            sub(/"$/, "", value)
-            return value
-        }
-        BEGIN { RS = "}" }
-        {
-            id = field($0, "workspaceId")
-            current = field($0, "cwd")
-            if (id != "" && current == wanted) {
-                print id
-                exit
-            }
-        }
-    '
+    while IFS=$'\x1f' read -r record_id record_cwd record_project record_isolation; do
+        [ -n "$record_id" ] || continue
+        if [ "$record_id" = "$id" ]; then
+            printf '%s\x1f%s\x1f%s\x1f%s' "$record_id" "$record_cwd" "$record_project" "$record_isolation"
+            return 0
+        fi
+    done <<< "$records"
+    return 1
+}
+
+workflow_paseo_workspace_id_for_cwd() {
+    local wanted=$1
+    local records
+    local status=0
+    local record_id record_cwd record_project record_isolation
+    local normalized
+    records="$(workflow_paseo_workspaces)" || status=$?
+    if [ "$status" -ne 0 ]; then
+        return "$status"
+    fi
+    while IFS=$'\x1f' read -r record_id record_cwd record_project record_isolation; do
+        [ -n "$record_id" ] || continue
+        normalized="$(workflow_normalize_path "$record_cwd")"
+        if [ "$normalized" = "$wanted" ]; then
+            printf '%s' "$record_id"
+            return 0
+        fi
+    done <<< "$records"
+    return 0
 }
 
 workflow_paseo_workspace_exists() {
@@ -544,19 +690,6 @@ workflow_paseo_workspace_exists() {
     local status=0
     record="$(workflow_paseo_workspace_record "$id")" || status=$?
     return "$status"
-}
-
-workflow_paseo_workspace_cwd() {
-    local id=$1
-    local record
-    local status=0
-    local record_id record_cwd record_project record_isolation
-    record="$(workflow_paseo_workspace_record "$id")" || status=$?
-    if [ "$status" -ne 0 ]; then
-        return "$status"
-    fi
-    IFS=$'\x1f' read -r record_id record_cwd record_project record_isolation <<< "$record"
-    printf '%s' "$record_cwd"
 }
 
 workflow_paseo_agents_json() {
@@ -577,46 +710,158 @@ workflow_paseo_agents() {
         return 2
     fi
     printf '%s\n' "$output" | awk '
-        BEGIN { sep = "\037" }
-        /"id"[[:space:]]*:/ {
-            if (seen) {
-                print id sep status sep cwd sep workspace sep name
+        function hexval(c,    digits) {
+            digits = "0123456789abcdef"
+            c = tolower(c)
+            return index(digits, c) - 1
+        }
+        function decode(s,    out, i, c, n, code) {
+            out = ""
+            for (i = 1; i <= length(s); i++) {
+                c = substr(s, i, 1)
+                if (c != "\\") {
+                    out = out c
+                    continue
+                }
+                i++
+                if (i > length(s)) {
+                    break
+                }
+                c = substr(s, i, 1)
+                if (c == "\"") out = out "\""
+                else if (c == "\\") out = out "\\"
+                else if (c == "/") out = out "/"
+                else if (c == "b") out = out "\b"
+                else if (c == "f") out = out "\f"
+                else if (c == "n") out = out "\n"
+                else if (c == "r") out = out "\r"
+                else if (c == "t") out = out "\t"
+                else if (c == "u") {
+                    code = 0
+                    for (n = 1; n <= 4; n++) {
+                        code = code * 16 + hexval(substr(s, i + n, 1))
+                    }
+                    if (code > 0 && code < 128) {
+                        out = out sprintf("%c", code)
+                    }
+                    i += 4
+                } else {
+                    out = out c
+                }
             }
-            value = $0
-            sub(/.*"id"[[:space:]]*:[[:space:]]*"/, "", value)
-            sub(/".*/, "", value)
-            id = value
-            status = ""; cwd = ""; workspace = ""; name = ""
-            seen = 1
+            return out
         }
-        /"name"[[:space:]]*:/ {
-            value = $0
-            sub(/.*"name"[[:space:]]*:[[:space:]]*"/, "", value)
-            sub(/".*/, "", value)
-            name = value
+        function split_objects(text, objects,    i, c, instring, escape, depth, start, count) {
+            count = 0
+            instring = 0
+            escape = 0
+            depth = 0
+            start = 0
+            for (i = 1; i <= length(text); i++) {
+                c = substr(text, i, 1)
+                if (instring) {
+                    if (escape) escape = 0
+                    else if (c == "\\") escape = 1
+                    else if (c == "\"") instring = 0
+                    continue
+                }
+                if (c == "\"") {
+                    instring = 1
+                    continue
+                }
+                if (c == "{") {
+                    depth++
+                    if (depth == 1) start = i
+                    continue
+                }
+                if (c == "}" && depth > 0) {
+                    depth--
+                    if (depth == 0 && start > 0) {
+                        objects[++count] = substr(text, start, i - start + 1)
+                        start = 0
+                    }
+                }
+            }
+            return count
         }
-        /"status"[[:space:]]*:/ {
-            value = $0
-            sub(/.*"status"[[:space:]]*:[[:space:]]*"/, "", value)
-            sub(/".*/, "", value)
-            status = value
+        function object_field(obj, wanted,    i, c, ch, depth, key, text, j, value) {
+            depth = 0
+            key = ""
+            for (i = 1; i <= length(obj); i++) {
+                c = substr(obj, i, 1)
+                if (c == "{") {
+                    depth++
+                    continue
+                }
+                if (c == "}") {
+                    depth--
+                    continue
+                }
+                if (depth != 1) continue
+                if (c == "\"") {
+                    text = ""
+                    i++
+                    while (i <= length(obj)) {
+                        ch = substr(obj, i, 1)
+                        if (ch == "\\") {
+                            text = text ch substr(obj, i + 1, 1)
+                            i += 2
+                            continue
+                        }
+                        if (ch == "\"") break
+                        text = text ch
+                        i++
+                    }
+                    j = i + 1
+                    while (j <= length(obj) && substr(obj, j, 1) ~ /[ \t\r\n]/) j++
+                    if (substr(obj, j, 1) == ":") {
+                        key = text
+                        i = j
+                        while (i + 1 <= length(obj) && substr(obj, i + 1, 1) ~ /[ \t\r\n]/) i++
+                        continue
+                    }
+                    if (key == wanted) {
+                        return decode(text)
+                    }
+                    continue
+                }
+                if (key == wanted) {
+                    value = ""
+                    while (i <= length(obj)) {
+                        ch = substr(obj, i, 1)
+                        if (ch == "," || ch == "}") break
+                        value = value ch
+                        i++
+                    }
+                    gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", value)
+                    return value
+                }
+            }
+            return ""
         }
-        /"cwd"[[:space:]]*:/ {
-            value = $0
-            sub(/.*"cwd"[[:space:]]*:[[:space:]]*"/, "", value)
-            sub(/".*/, "", value)
-            cwd = value
+        function is_empty_array(text,    compact) {
+            compact = text
+            gsub(/[ \t\r\n]/, "", compact)
+            return compact == "[]"
         }
-        /"workspaceId"[[:space:]]*:/ {
-            value = $0
-            sub(/.*"workspaceId"[[:space:]]*:[[:space:]]*"/, "", value)
-            sub(/".*/, "", value)
-            workspace = value
-        }
+        { text = text $0 "\n" }
         END {
-            if (seen) {
-                print id sep status sep cwd sep workspace sep name
+            sep = "\037"
+            count = split_objects(text, objects)
+            if (count == 0) {
+                if (!is_empty_array(text)) exit 2
+                exit 0
             }
+            bad = 0
+            for (i = 1; i <= count; i++) {
+                id = object_field(objects[i], "id")
+                if (id == "") {
+                    bad = 1
+                    continue
+                }
+                print id sep object_field(objects[i], "status") sep object_field(objects[i], "cwd") sep object_field(objects[i], "workspaceId") sep object_field(objects[i], "name")
+            }
+            if (bad) exit 2
         }
     '
 }

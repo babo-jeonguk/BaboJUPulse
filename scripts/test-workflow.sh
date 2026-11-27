@@ -649,7 +649,7 @@ fi
 # Meaningful ignored content under a broad output name is retained even when
 # build-output removal is requested. Standard bin/obj output can be removed only
 # with an explicit --remove-build-output request.
-printf 'bin/\nartifacts/\n' >> "$dirty_seed/.git/info/exclude"
+printf 'bin/\nobj/\nTestResults/\nartifacts/\n' >> "$dirty_seed/.git/info/exclude"
 mkdir -p "$dirty_worktree/bin"
 printf 'non-build note\n' > "$dirty_worktree/bin/important.txt"
 export STUB_PR_RECORD="$(printf '14\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/dirty-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/14' "$dirty_merge" "$dirty_head")"
@@ -677,6 +677,40 @@ fi
 assert_no_archive "cleanup meaningful bin content with output flag"
 rm -rf "$dirty_worktree/bin"
 
+mkdir -p "$dirty_worktree/obj"
+printf 'meaningful json\n' > "$dirty_worktree/obj/notes.json"
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 14 --verified-sha "$dirty_head" --remove-build-output \
+    --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
+assert_exit 1 "cleanup meaningful obj content"
+assert_contains "cleanup: blocked=worktree_has_local_content" "cleanup meaningful obj content"
+if [ -f "$dirty_worktree/obj/notes.json" ]; then
+    ok
+else
+    fail "cleanup deleted meaningful content under obj"
+fi
+assert_no_archive "cleanup meaningful obj content"
+rm -rf "$dirty_worktree/obj"
+
+mkdir -p "$dirty_worktree/TestResults"
+printf 'meaningful test note\n' > "$dirty_worktree/TestResults/notes.txt"
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 14 --verified-sha "$dirty_head" --remove-build-output \
+    --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
+assert_exit 1 "cleanup meaningful test results content"
+assert_contains "cleanup: blocked=worktree_has_local_content" "cleanup meaningful test results content"
+if [ -f "$dirty_worktree/TestResults/notes.txt" ]; then
+    ok
+else
+    fail "cleanup deleted meaningful content under TestResults"
+fi
+assert_no_archive "cleanup meaningful test results content"
+rm -rf "$dirty_worktree/TestResults"
+
 mkdir -p "$dirty_worktree/artifacts"
 printf 'important\n' > "$dirty_worktree/artifacts/important.txt"
 rm -f "$paseo_archived"
@@ -692,8 +726,10 @@ else
 fi
 rm -rf "$dirty_worktree/artifacts"
 
-mkdir -p "$dirty_worktree/bin"
+mkdir -p "$dirty_worktree/bin" "$dirty_worktree/obj" "$dirty_worktree/TestResults"
 printf 'binary\n' > "$dirty_worktree/bin/output.dll"
+printf '{"generated":true}\n' > "$dirty_worktree/obj/project.assets.json"
+printf 'generated test result\n' > "$dirty_worktree/TestResults/generated.trx"
 run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" execute \
     --pr 14 --verified-sha "$dirty_head" --remove-build-output \
     --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
@@ -872,6 +908,52 @@ assert_exit 1 "cleanup unrelated agent"
 assert_contains "cleanup: blocked=workspace_agent_unrelated" "cleanup unrelated agent"
 assert_path_exists "$agent_worktree" "cleanup unrelated agent"
 assert_no_archive "cleanup unrelated agent"
+
+export STUB_PASEO_AGENTS_JSON="$(printf '[{"id":"agent-compact-running","name":"Compact ongoing","status":"running","cwd":"%s","workspaceId":"wks_agent"},{"id":"agent-compact-idle","name":"Compact idle","status":"idle","cwd":"%s","workspaceId":"wks_other"}]\n' "$agent_worktree" "$agent_fixture/elsewhere")"
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 23 --verified-sha "$agent_head" \
+    --workspace-id wks_agent --worktree "$agent_worktree" --main-worktree "$agent_seed"
+assert_exit 1 "cleanup compact ongoing agent"
+assert_contains "cleanup: blocked=workspace_agent_ongoing" "cleanup compact ongoing agent"
+assert_path_exists "$agent_worktree" "cleanup compact ongoing agent"
+assert_no_archive "cleanup compact ongoing agent"
+
+export STUB_PASEO_AGENTS_JSON="$(printf '[{"id":"agent-other-workspace","name":"Other workspace","status":"idle","cwd":"%s","workspaceId":"wks_other"}]\n' "$agent_worktree")"
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 23 --verified-sha "$agent_head" \
+    --workspace-id wks_agent --worktree "$agent_worktree" --main-worktree "$agent_seed"
+assert_exit 1 "cleanup agent from another workspace"
+assert_contains "cleanup: blocked=workspace_agent_other_workspace" "cleanup agent from another workspace"
+assert_path_exists "$agent_worktree" "cleanup agent from another workspace"
+assert_no_archive "cleanup agent from another workspace"
+
+export STUB_PASEO_AGENTS_JSON='[{"unexpected":true}]'
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 23 --verified-sha "$agent_head" \
+    --workspace-id wks_agent --worktree "$agent_worktree" --main-worktree "$agent_seed"
+assert_exit 1 "cleanup malformed agent state"
+assert_contains "cleanup: blocked=workspace_agent_query_failed" "cleanup malformed agent state"
+assert_path_exists "$agent_worktree" "cleanup malformed agent state"
+assert_no_archive "cleanup malformed agent state"
+
+export STUB_PASEO_AGENTS_JSON="[]"
+export STUB_PASEO_AGENTS_FAIL=1
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$agent_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 23 --verified-sha "$agent_head" \
+    --workspace-id wks_agent --worktree "$agent_worktree" --main-worktree "$agent_seed"
+unset STUB_PASEO_AGENTS_FAIL
+assert_exit 1 "cleanup unavailable agent state"
+assert_contains "cleanup: blocked=workspace_agent_query_failed" "cleanup unavailable agent state"
+assert_path_exists "$agent_worktree" "cleanup unavailable agent state"
+assert_no_archive "cleanup unavailable agent state"
 export STUB_PASEO_AGENTS_JSON="[]"
 
 # --- Cleanup safety: repository identity ------------------------------------
@@ -949,6 +1031,67 @@ if [ -n "$(git -C "$main_identity_seed" ls-remote --heads origin chore/main-iden
 else
     fail "cleanup deleted a remote branch before verifying the main worktree repository"
 fi
+
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$main_identity_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 25 --verified-sha "$main_identity_head" \
+    --workspace-id wks_main_identity --worktree "$main_identity_worktree" \
+    --main-worktree "$main_identity_fixture/missing-main-worktree"
+assert_exit 1 "cleanup explicit missing main worktree"
+assert_contains "cleanup: blocked=local_main_worktree_missing" "cleanup explicit missing main worktree"
+assert_path_exists "$main_identity_worktree" "cleanup explicit missing main worktree"
+assert_no_archive "cleanup explicit missing main worktree"
+if [ -n "$(git -C "$main_identity_seed" ls-remote --heads origin chore/main-identity)" ]; then
+    ok
+else
+    fail "cleanup deleted a remote branch when the explicit main worktree was missing"
+fi
+
+# --- Cleanup safety: workspace discovery and incomplete state ---------------
+
+discovery_fixture="$fixture/discovery"
+make_repository "$discovery_fixture"
+discovery_seed="$discovery_fixture/seed"
+git -C "$discovery_seed" checkout -q -b chore/discovery-ws
+printf 'discovery work\n' >> "$discovery_seed/file.txt"
+git -C "$discovery_seed" commit -q -am "feat: discovery work"
+git -C "$discovery_seed" push -q -u origin chore/discovery-ws
+discovery_head=$(git -C "$discovery_seed" rev-parse HEAD)
+git -C "$discovery_seed" checkout -q main
+git -C "$discovery_seed" merge -q --no-ff chore/discovery-ws -m "Merge discovery-ws"
+git -C "$discovery_seed" push -q origin main
+discovery_merge=$(git -C "$discovery_seed" rev-parse HEAD)
+git -C "$discovery_seed" reset -q --hard HEAD^1
+discovery_worktree="$discovery_fixture/worktree"
+git -C "$discovery_seed" worktree add -q "$discovery_worktree" chore/discovery-ws
+
+export STUB_PR_RECORD="$(printf '29\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/discovery-ws\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/29' "$discovery_merge" "$discovery_head")"
+export STUB_PASEO_JSON='[{"workspaceId":"wks_discovery"}]'
+export STUB_PASEO_AGENTS_JSON="[]"
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$discovery_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 29 --verified-sha "$discovery_head" \
+    --worktree "$discovery_worktree" --main-worktree "$discovery_seed"
+assert_exit 1 "cleanup incomplete workspace discovery state"
+assert_contains "cleanup: blocked=workspace_query_failed" "cleanup incomplete workspace discovery state"
+assert_path_exists "$discovery_worktree" "cleanup incomplete workspace discovery state"
+assert_no_archive "cleanup incomplete workspace discovery state"
+
+export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_discovery","cwd":"%s/"}]' "$discovery_worktree")"
+export STUB_PASEO_AGENTS_JSON="$(printf '[\n  {\n    "id": "agent-discovery",\n    "name": "Discovery work",\n    "status": "idle",\n    "cwd": "%s",\n    "workspaceId": "wks_discovery"\n  }\n]\n' "$discovery_worktree")"
+rm -f "$paseo_archived"
+: > "$paseo_log"
+run_at "$discovery_seed" "$root/scripts/workflow/cleanup.sh" execute \
+    --pr 29 --verified-sha "$discovery_head" \
+    --worktree "$discovery_worktree" --main-worktree "$discovery_seed"
+assert_exit 0 "cleanup discovered workspace with formatted cwd"
+assert_contains "cleanup: workspace=archived" "cleanup discovered workspace with formatted cwd"
+assert_contains "cleanup: worktree=removed" "cleanup discovered workspace with formatted cwd"
+assert_contains "cleanup: local_branch=deleted" "cleanup discovered workspace with formatted cwd"
+assert_contains "cleanup: result=pass" "cleanup discovered workspace with formatted cwd"
+assert_path_missing "$discovery_worktree" "cleanup discovered workspace with formatted cwd"
 
 # --- Cleanup safety: remote branch races ------------------------------------
 

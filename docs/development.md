@@ -69,9 +69,9 @@ Required checks, suppression approval, analyzer changes, gate integrity, and enf
 | `scripts/workflow/validate.sh docs` | Run documentation and public-content checks only. |
 | `scripts/workflow/validate.sh range` | Verify and print a base-to-head review range, commit count, and diffstat. |
 | `scripts/workflow/merge.sh inspect` | Read-only merge-readiness inspection against an explicit verified SHA. |
-| `scripts/workflow/merge.sh execute` | Merge only after inspection passes, using the original verified SHA as `--match-head-commit`. |
-| `scripts/workflow/cleanup.sh inspect` | Read-only post-merge cleanup inspection. |
-| `scripts/workflow/cleanup.sh execute` | Verify the merge, delete a safe remote branch, fast-forward local `main`, archive the Paseo workspace, remove a clean worktree, and delete the merged local branch. Use `--remove-build-output` only to remove known reproducible output. |
+| `scripts/workflow/merge.sh execute` | Merge only after inspection passes, using the original verified SHA as `--match-head-commit`. It never deletes a branch; cleanup owns that decision. |
+| `scripts/workflow/cleanup.sh inspect` | Read-only post-merge cleanup inspection, including repository, worktree, branch, workspace, and agent identity. |
+| `scripts/workflow/cleanup.sh execute` | Verify repository and merge ancestry, retain unmerged local work, delete a safe same-repository remote branch with a lease, fast-forward local `main`, archive an ownership-verified Paseo workspace, remove a clean worktree, and delete the merged local branch. Use `--remove-build-output` only for fully reproducible generated output. |
 
 Run `scripts/workflow/<script>.sh --help` for the exact options. `validate.sh` reports the repository, commit, dirty state, checks, and results. `workspace.sh` reports the base and head plus worktree cleanliness; `merge.sh` and `cleanup.sh` report the PR, SHAs, evaluated conditions, and final state. A failed required check exits nonzero; a concurrent HEAD or working-tree change during validation exits with status 3. Do not treat a script result as permission to skip review, documentation freshness, or a maintainer decision.
 

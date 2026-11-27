@@ -58,7 +58,7 @@ prepare() {
     actual_repository="$(workflow_github_repository "$repository")"
 
     local issue_record number state title url labels
-    issue_record=$("$GH_BIN" issue view "$issue" \
+    issue_record=$("$GH_BIN" issue view "$issue" --repo "$actual_repository" \
         --json number,state,title,url,labels \
         --jq '[.number, .state, .title, .url, ([.labels[].name] | join(","))] | join("\u001f")' 2>/dev/null) \
         || workflow_die "could not read issue #$issue" 1
@@ -198,7 +198,7 @@ verify() {
     actual_repository="$(workflow_github_repository "$repository")"
 
     local state
-    state=$("$GH_BIN" issue view "$issue" --json state --jq .state 2>/dev/null) \
+    state=$("$GH_BIN" issue view "$issue" --repo "$actual_repository" --json state --jq .state 2>/dev/null) \
         || workflow_die "could not read issue #$issue" 1
     if [ "$state" != "OPEN" ]; then
         workflow_die "issue #$issue is not open" 1

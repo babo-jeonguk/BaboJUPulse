@@ -71,7 +71,7 @@ If `merge.sh inspect` reports a head mismatch, stop. The current PR head is not 
 
 - `merge.sh inspect` confirms the required checks. The default set is `build` and `documentation`; add `--require-check <name>` only when another check is required. The branch-protection required check is `build`, and the merge procedure also requires the `documentation` workflow result.
 - A documentation-only commit does not make the pull request documentation-only for CI purposes; the full build still runs.
-- If the `documentation` workflow did not run, record a local `scripts/workflow/validate.sh docs` result and the reason. When the workflow cannot run, pass `--allow-missing-check documentation` explicitly and record why; a missing check that actually ran and failed is never allowed. Do not add path filters to make it disappear, and do not treat an earlier run on another commit as evidence for the final head.
+- If the `documentation` workflow did not run, record a local `scripts/workflow/validate.sh docs` result and the reason. When the workflow cannot run, pass `--allow-missing-check documentation` explicitly and record why; a missing check that actually ran and failed is never allowed, and the mandatory `build` check cannot be waived. Do not add path filters to make it disappear, and do not treat an earlier run on another commit as evidence for the final head.
 - Inspect CodeQL and dependency-review results when relevant. They are advisory unless the maintainer says otherwise, but a new security finding needs a decision before merge.
 - Confirm no unresolved conversation or requested-change review remains. The script does not replace this human check.
 - Confirm the branch is mergeable and targets `main`. If it is behind the base, update it, rerun affected checks, re-review a change that is not documentation-only, and repeat this procedure.
@@ -172,7 +172,7 @@ scripts/workflow/cleanup.sh inspect \
   --main-worktree <main-worktree-path>
 ```
 
-Then execute the same inputs without `inspect` when the reported state is safe. Omit the optional identifiers when they can be discovered; the script accepts them to make the intended resources explicit. If the only ignored content is reproducible build output, add `--remove-build-output` explicitly; do not use it to remove notes, logs, or other meaningful local artifacts.
+Then execute the same inputs without `inspect` when the reported state is safe. Omit the optional identifiers when they can be discovered; the script accepts them to make the intended resources explicit. If the only ignored content is reproducible build output, add `--remove-build-output` explicitly; it removes the whole `bin`, `obj`, and `TestResults` directories, so do not use it when they contain notes, logs, or other meaningful local artifacts.
 
 The script verifies and performs these steps:
 

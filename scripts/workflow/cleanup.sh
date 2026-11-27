@@ -19,9 +19,11 @@
 #   --worktree <path>          Issue worktree to remove; must have the PR branch.
 #   --main-worktree <path>     Worktree that has main checked out.
 #   --remove-build-output      Explicitly remove known reproducible output
-#                              (bin, obj, TestResults, .binlog) before worktree
-#                              removal. Without this flag, any ignored content
-#                              retains the worktree.
+#                              directories (bin, obj, TestResults) and .binlog
+#                              files before worktree removal. The whole named
+#                              directory is removed; do not use this flag when
+#                              it contains non-generated files. Without it, any
+#                              ignored content retains the worktree.
 #   --repository <owner/name>  Require this GitHub repository.
 #
 # Run from a worktree that will remain after the issue worktree is removed.
@@ -33,7 +35,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 source "$script_dir/common.sh"
 
 usage() {
-    sed -n '2,28p' "${BASH_SOURCE[0]}"
+    sed -n '2,30p' "${BASH_SOURCE[0]}"
 }
 
 pr=""
@@ -226,13 +228,13 @@ main_step() {
         printf 'cleanup: local_main=absent reason=no_main_worktree\n'
         return 0
     fi
+    if [ -d "$path" ] && [ -n "$("$GIT_BIN" -C "$path" rev-parse --show-prefix 2>/dev/null)" ]; then
+        block "local_main_worktree_not_root"
+        return 0
+    fi
     path="$(normalize_path "$path")"
     if [ ! -d "$path" ]; then
         printf 'cleanup: local_main=absent path_missing=yes\n'
-        return 0
-    fi
-    if [ -n "$("$GIT_BIN" -C "$path" rev-parse --show-prefix 2>/dev/null)" ]; then
-        block "local_main_worktree_not_root"
         return 0
     fi
     if [ "$("$GIT_BIN" -C "$path" branch --show-current)" != "main" ]; then
@@ -326,6 +328,17 @@ workspace_step() {
             return 0
         fi
         printf 'cleanup: workspace=present id=%s\n' "$workspace_id"
+        if [ -n "$worktree" ]; then
+            local workspace_cwd
+            if ! workspace_cwd="$(workflow_paseo_workspace_cwd "$workspace_id")"; then
+                block "workspace_query_failed"
+                return 0
+            fi
+            if [ -z "$workspace_cwd" ] || [ "$(workflow_normalize_path "$workspace_cwd")" != "$(workflow_normalize_path "$worktree")" ]; then
+                block "workspace_cwd_mismatch"
+                return 0
+            fi
+        fi
         if [ "$MODE" = inspect ]; then
             printf 'cleanup: workspace=archive_candidate\n'
             return 0

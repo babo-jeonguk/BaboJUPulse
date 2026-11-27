@@ -39,6 +39,7 @@ assert_contains() {
         ok
     else
         fail "$label: output did not contain '$expected'"
+        sed -n '1,40p' "$output" >&2
     fi
 }
 
@@ -300,6 +301,10 @@ assert_exit 0 "merge inspect allowed missing"
 assert_contains "merge: check=documentation result=allowed-missing" "merge inspect allowed missing"
 assert_contains "merge: result=ready" "merge inspect allowed missing"
 
+run_at "$fixture" "$root/scripts/workflow/merge.sh" inspect \
+    --pr 7 --verified-sha "$merge_head" --allow-missing-check build
+assert_exit 2 "merge inspect cannot waive build"
+
 export STUB_CHECKS=$'build\x1fSUCCESS\x1fpass\ndocumentation\x1fSUCCESS\x1fpass\n'
 
 run_at "$fixture" "$root/scripts/workflow/merge.sh" inspect \
@@ -318,6 +323,17 @@ run_at "$fixture" "$root/scripts/workflow/merge.sh" inspect \
     --pr 7 --verified-sha "$merge_head"
 assert_exit 1 "merge inspect pending"
 assert_contains "merge: check=build state=PENDING bucket=pending result=fail" "merge inspect pending"
+
+export STUB_CHECKS=$'build\x1fSUCCESS\x1fpass\ndocumentation\x1fFAILURE\x1ffail\n'
+export STUB_CHECKS_EXIT=1
+run_at "$fixture" "$root/scripts/workflow/merge.sh" inspect \
+    --pr 7 --verified-sha "$merge_head" --allow-missing-check documentation
+assert_exit 1 "merge inspect unreadable checks"
+assert_contains "merge: check=documentation result=unverified" "merge inspect unreadable checks"
+assert_not_contains "merge: check=documentation result=allowed-missing" "merge inspect unreadable checks"
+
+export STUB_CHECKS=$'build\x1fSUCCESS\x1fpass\ndocumentation\x1fSUCCESS\x1fpass\n'
+export STUB_CHECKS_EXIT=0
 
 export STUB_CHECKS=$'build\x1fSUCCESS\x1fpass\ndocumentation\x1fSUCCESS\x1fpass\n'
 export STUB_CHECKS_EXIT=0
@@ -394,6 +410,13 @@ else
     fail "cleanup removed a worktree targeted through a subdirectory"
 fi
 rmdir "$cleanup_worktree/subdirectory"
+
+mkdir -p "$cleanup_seed/main-subdirectory"
+run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 8 --verified-sha "$cleanup_head" --main-worktree "$cleanup_seed/main-subdirectory"
+assert_exit 1 "cleanup main subdirectory"
+assert_contains "cleanup: blocked=local_main_worktree_not_root" "cleanup main subdirectory"
+rmdir "$cleanup_seed/main-subdirectory"
 
 wrong_worktree="$cleanup_fixture/wrong-worktree"
 git -C "$cleanup_seed" worktree add -q "$wrong_worktree" -b chore/wrong-worktree HEAD
@@ -490,6 +513,18 @@ assert_exit 1 "cleanup open pr fields"
 assert_contains "cleanup: base=main head=chore/open-test" "cleanup open pr fields"
 assert_contains "cleanup: merge_commit= merged_at=" "cleanup open pr fields"
 
+# A workspace supplied when the worktree is already absent must still match the
+# supplied target path before it is archived.
+export STUB_PR_RECORD="$(printf '8\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/cleanup-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/8' "$cleanup_merge" "$cleanup_head")"
+rm -f "$paseo_archived"
+export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_other","cwd":"%s"}]' "$cleanup_fixture/elsewhere")"
+run_at "$cleanup_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 8 --workspace-id wks_other --worktree "$cleanup_worktree" --main-worktree "$cleanup_seed"
+assert_exit 1 "cleanup absent worktree workspace cwd"
+assert_contains "cleanup: blocked=workspace_cwd_mismatch" "cleanup absent worktree workspace cwd"
+
+export STUB_PASEO_JSON="$(printf '[{"workspaceId":"wks_cleanup","cwd":"%s"}]' "$cleanup_worktree")"
+
 # --- Cleanup safety: dirty worktree and fork branch --------------------------
 
 dirty_fixture="$fixture/dirty"
@@ -572,9 +607,18 @@ fi
 # build-output removal is requested. Standard bin/obj output can be removed only
 # with an explicit --remove-build-output request.
 printf 'bin/\nartifacts/\n' >> "$dirty_seed/.git/info/exclude"
+mkdir -p "$dirty_worktree/bin"
+printf 'non-build note\n' > "$dirty_worktree/bin/important.txt"
+export STUB_PR_RECORD="$(printf '14\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/dirty-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/14' "$dirty_merge" "$dirty_head")"
+run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" inspect \
+    --pr 14 --verified-sha "$dirty_head" \
+    --workspace-id wks_dirty --worktree "$dirty_worktree" --main-worktree "$dirty_seed"
+assert_exit 1 "cleanup ignored content default"
+assert_contains "cleanup: blocked=worktree_has_local_content" "cleanup ignored content default"
+rm -rf "$dirty_worktree/bin"
+
 mkdir -p "$dirty_worktree/artifacts"
 printf 'important\n' > "$dirty_worktree/artifacts/important.txt"
-export STUB_PR_RECORD="$(printf '14\x1fMERGED\x1f2026-01-01T00:00:00Z\x1f%s\x1fchore/dirty-test\x1f%s\x1fowner\x1frepo\x1fmain\x1fhttps://example.test/pull/14' "$dirty_merge" "$dirty_head")"
 rm -f "$paseo_archived"
 run_at "$dirty_seed" "$root/scripts/workflow/cleanup.sh" inspect \
     --pr 14 --verified-sha "$dirty_head" --remove-build-output \

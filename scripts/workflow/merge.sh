@@ -15,10 +15,10 @@
 #   --require-check <name>     Add a required check name (repeatable; the default
 #                              set is build and documentation).
 #   --allow-missing-check <name>
-#                              Explicitly allow a missing required check. Use
-#                              only when its unavailability is recorded and a
-#                              local equivalent was verified; a failing check is
-#                              never allowed.
+#                              Explicitly allow a missing non-mandatory check.
+#                              Use only when its unavailability is recorded and a
+#                              local equivalent was verified; a failing check or
+#                              the mandatory build check is never allowed.
 #   --delete-branch            Also request branch deletion. Prefer cleanup.sh,
 #                              which verifies merge ancestry first.
 #
@@ -39,6 +39,7 @@ repository=""
 delete_branch=no
 require_checks=(build documentation)
 allow_missing_checks=()
+mandatory_checks=(build)
 
 parse_args() {
     while [ "$#" -gt 0 ]; do
@@ -58,6 +59,14 @@ parse_args() {
     local check
     for check in "${require_checks[@]}"; do
         [ -n "$check" ] || workflow_usage_error "--require-check needs a name"
+    done
+    for check in "${allow_missing_checks[@]}"; do
+        local mandatory
+        for mandatory in "${mandatory_checks[@]}"; do
+            if [ "$check" = "$mandatory" ]; then
+                workflow_usage_error "--allow-missing-check may not cover the mandatory $mandatory check"
+            fi
+        done
     done
 }
 
@@ -118,6 +127,7 @@ evaluate() {
 
     local checks_output
     local checks_code=0
+    local checks_readable=1
     set +e
     checks_output=$("$GH_BIN" pr checks "$pr" --json name,state,bucket \
         --jq '.[] | [.name, .state, .bucket] | join("\u001f")' 2>/dev/null)
@@ -126,6 +136,7 @@ evaluate() {
     if [ "$checks_code" -ne 0 ] && [ "$checks_code" -ne 8 ]; then
         printf 'merge: condition=checks result=fail; could not read checks (exit %s)\n' "$checks_code" >&2
         blocked=1
+        checks_readable=0
         checks_output=""
     fi
 
@@ -155,7 +166,10 @@ evaluate() {
                     allowed=1
                 fi
             done
-            if [ "$allowed" -eq 1 ]; then
+            if [ "$checks_readable" -ne 1 ]; then
+                printf 'merge: check=%s result=unverified\n' "$check" >&2
+                blocked=1
+            elif [ "$allowed" -eq 1 ]; then
                 printf 'merge: check=%s result=allowed-missing\n' "$check"
             else
                 printf 'merge: check=%s result=missing\n' "$check" >&2

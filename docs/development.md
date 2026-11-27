@@ -66,8 +66,10 @@ Required checks, suppression approval, analyzer changes, gate integrity, and enf
 | --- | --- |
 | `scripts/workflow/workspace.sh prepare` | Verify the repository and issue, refresh `origin/main`, capture the base SHA, and detect an existing branch or worktree before a Paseo workspace operation. |
 | `scripts/workflow/workspace.sh verify` | Verify the worktree, branch, base ancestry, current `origin/main` ancestry, and clean state after workspace creation. |
-| `scripts/workflow/validate.sh targeted` | Run selected gates after a slice, for example `--format --build --test`, `--docs`, `--policy`, or `--workflow`. The workflow check runs ShellCheck and the workflow-script tests. |
-| `scripts/workflow/validate.sh full` | Run restore, format, build, tests, repository-policy tests, documentation, public content, workflow ShellCheck, and workflow-script tests. |
+| `scripts/workflow/validate.sh slice` | Validate a completed slice with `--csharp`, `--config`, `--workflow`, `--docs`, or a combination. The staged snapshot is bound to the result; public content is always checked. |
+| `scripts/workflow/validate.sh checkpoint` | Confirm that the committed checkpoint tree matches the validated tree, descends from the validated starting HEAD, and has a clean worktree. |
+| `scripts/workflow/validate.sh targeted` | Run selected gates for iteration, for example `--format --build --test`, `--docs`, `--policy`, or `--workflow`. Build prerequisites are added automatically. Not completion evidence. |
+| `scripts/workflow/validate.sh full` | Run restore, format, build, tests, repository-policy tests, documentation, public content, workflow ShellCheck, and workflow-script tests from a clean committed worktree. |
 | `scripts/workflow/validate.sh docs` | Run documentation and public-content checks only. |
 | `scripts/workflow/validate.sh range` | Verify and print a base-to-head review range, commit count, and diffstat. |
 | `scripts/workflow/merge.sh inspect` | Read-only merge-readiness inspection against an explicit verified SHA. |
@@ -75,7 +77,20 @@ Required checks, suppression approval, analyzer changes, gate integrity, and enf
 | `scripts/workflow/cleanup.sh inspect` | Read-only post-merge cleanup inspection, including effective repository identity, worktree, branch, workspace, agent identity, and Git query failures. |
 | `scripts/workflow/cleanup.sh execute` | Verify repository and merge ancestry, retain unmerged local work, delete a safe same-repository remote branch with a lease, fast-forward local `main`, archive an ownership-verified Paseo workspace, remove a clean worktree, and delete the merged local branch. A fork or unverified PR head repository retains local branch, worktree, and workspace resources. A failed tracked, untracked, or ignored-content query blocks the affected destructive step. Use `--remove-build-output` only for fully reproducible generated output. |
 
-Run `scripts/workflow/<script>.sh --help` for the exact options. `validate.sh` reports the repository, commit, dirty state, checks, and results. `workspace.sh` reports the base and head plus worktree cleanliness; `merge.sh` and `cleanup.sh` report the PR, SHAs, evaluated conditions, and final state. A failed required check exits nonzero; a concurrent HEAD or working-tree change during validation exits with status 3. Do not treat a script result as permission to skip review, documentation freshness, or a maintainer decision.
+Run `scripts/workflow/<script>.sh --help` for the exact options. `validate.sh` reports the repository, commit, snapshot or tree, checks, and results. Slice validation requires a staged snapshot whose worktree matches the index and has no non-ignored untracked files; full validation requires a clean committed worktree. Tests and policy checks run only after a successful restore and build in the same invocation, and dependent checks are skipped after a failed prerequisite. `workspace.sh` reports the base and head plus worktree cleanliness; `merge.sh` and `cleanup.sh` report the PR, SHAs, evaluated conditions, and final state. A failed required check exits nonzero; a concurrent HEAD, snapshot, index, or working-tree change during validation exits with status 3. Do not treat a script result as permission to skip review, documentation freshness, or a maintainer decision.
+
+Complete a slice with:
+
+```bash
+git add <intended paths>
+scripts/workflow/validate.sh slice --csharp --workflow
+git commit
+scripts/workflow/validate.sh checkpoint \
+  --head <validated-head> \
+  --tree <validated-tree>
+```
+
+Run `scripts/workflow/validate.sh full` from the final clean commit before review. The authoritative selection matrix and snapshot contract are in [Quality gates](agents/quality-gates.md#slice-completion-validation).
 
 Run the scoped static check and the workflow-script tests directly:
 

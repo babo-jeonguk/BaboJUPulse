@@ -28,8 +28,8 @@ Split the issue into small, coherent slices. Each slice states:
 
 - Its purpose and observable outcome.
 - The files or boundaries it may touch.
-- The tests or checks that prove it.
-- Its dependencies on earlier slices.
+- The tests or checks that prove it, including the `validate.sh slice` profiles selected under the [gate-selection matrix](quality-gates.md#slice-completion-validation).
+- Its dependencies on earlier slices and the clean checkpoint it starts from.
 - The domain terms it uses and any ambiguity that must be resolved first.
 
 Keep the slices in the issue or a working note. Do not create an elaborate plan document when the issue can carry the contract.
@@ -51,39 +51,66 @@ Read only the documents routed by [AGENTS.md](../../AGENTS.md). For code changes
 
 Test-driven development is optional. Apply the testability and regression-test rules in [Coding standards](../../CODING_STANDARDS.md) and run the commands in [Development](../development.md#tests).
 
-### 4. Verify each slice
+### 4. Verify each slice and confirm its checkpoint
 
-Run the targeted checks for the area you changed:
+A slice starts from the previous verified, clean checkpoint. Select gates by the change type and affected behavior; the authoritative [gate-selection matrix and snapshot contract](quality-gates.md#slice-completion-validation) define the profiles. In summary:
+
+- C# production or test changes use `--csharp`.
+- Dependency, build, or configuration changes use `--config`.
+- Workflow shell changes use `--workflow`.
+- Documentation changes use `--docs`.
+- Mixed changes combine the applicable profiles.
+
+Public-content checking is always included. Add another affected check when the profile is insufficient; the profiles are not a change-impact engine. Do not substitute an arbitrary minimal set for the gates the change needs.
+
+Stage only the intended slice, inspect the actual diff, then run the slice completion gate:
 
 ```bash
-scripts/workflow/validate.sh targeted --format --build --test
+git add <intended paths>
+scripts/workflow/validate.sh slice --csharp --workflow
 ```
 
-Use the specific checks that apply, such as `--docs`, `--policy`, or `--workflow`. The script reports the repository, commit, dirty state, checks executed, and results, and fails when a required check fails. The individual commands remain authoritative in [Development](../development.md#quality-gates) and [Development tests](../development.md#tests).
+The script reuses the existing gates, runs them in a fixed order, deduplicates them, and requires a clean staged snapshot: the worktree must match the index and no non-ignored untracked files may remain. It records the starting HEAD and index tree and checks them again after the gates. It reports the selected checks and their results. It fails nonzero when a required check fails; dependent tests or policy checks are skipped when restore or build fails rather than run against stale binaries. Exit status 3 means the snapshot changed during validation, so the result is invalid even if the individual checks passed.
 
-If a check fails, fix the cause. Do not add a suppression, weaken a severity, exclude a file, or change a gate independently. Stop and request maintainer approval with reproducible evidence, following [Quality gates](quality-gates.md).
+`validate.sh targeted` is still available for faster iteration and applies the same build prerequisites, but it is not completion evidence.
 
-### 5. Commit coherent units
+If a check fails or is unavailable, fix the cause and rerun. Do not add a suppression, weaken a severity, exclude a file, or change a gate independently. Stop and request maintainer approval with reproducible evidence, following [Quality gates](quality-gates.md).
 
-Use the commit convention in [GitHub operations](github-operations.md). Keep formatting-only changes separate from behavior changes when practical. Do not commit build output, credentials, private logs, or local-only artifacts.
+Inspect the actual diff before committing. Keep ignored generated build output outside the checkpoint.
 
-Run the publication checker on the commit message if the local hook is not configured.
+### 5. Commit the verified slice and confirm the checkpoint
 
-### 6. Complete the full required suite before review
+Commit the verified snapshot as one or more coherent commits using the convention in [GitHub operations](github-operations.md). Keep formatting-only changes separate from behavior changes when practical. Do not commit build output, credentials, private logs, or local-only artifacts.
 
-Run the complete required validation on the final commit:
+Confirm that the commit contains the validated snapshot:
+
+```bash
+scripts/workflow/validate.sh checkpoint \
+  --head <validated-head> \
+  --tree <validated-tree>
+```
+
+The checkpoint command requires a clean worktree, the current HEAD to be the checkpoint commit, the commit tree to equal the validated tree, and the validated starting HEAD to be an ancestor. Only a verified checkpoint completes the slice. If the tree, lineage, or state does not match, revalidate the intended change before starting another slice.
+
+Do not accumulate completed slices into a later commit or start the next slice with unresolved changes. One or more coherent commits are acceptable. Run the publication checker on the commit message if the local hook is not configured.
+
+### 6. Complete the full required suite on the final clean commit
+
+After all slices are committed, run the complete required validation on the final commit:
 
 ```bash
 scripts/workflow/validate.sh full
 ```
 
-Record the exact command and result. Distinguish:
+Full mode requires a clean committed worktree and the same HEAD before and after the run, and it runs every existing gate in that invocation. A dirty tree, changed HEAD, unavailable state query, or missing dependency fails; do not present pre-commit slice results as full validation of the final commit. Repeat full validation whenever the final implementation commit changes.
+
+Record the exact command, checkpoint, and result. Distinguish:
 
 - A successful build from verified Windows runtime behavior.
 - A test that ran from a test that could not run on this platform.
 - A check that is not applicable from a check that was skipped or failed.
 
-The script fails closed if HEAD or the working tree changes while the checks run, because the evidence may no longer describe the inspected commit.
+The individual commands remain authoritative in [Development](../development.md#quality-gates) and [Development tests](../development.md#tests). The script fails closed with status 3 if HEAD or the working tree changes while the checks run, because the evidence may no longer describe the inspected commit.
 
 ### 7. Hand off to review
 
@@ -118,21 +145,22 @@ Give the worker:
 - The GitHub issue and its authoritative specification.
 - The specific slice objective and observable outcome.
 - The relevant acceptance criteria and domain terms.
-- The current starting commit SHA.
+- The current verified, clean checkpoint SHA.
 - The files or boundaries it may touch and its dependencies.
 - Applicable architecture decisions, coding standards, and quality-gate requirements.
-- The required verification.
+- The `validate.sh slice` profiles selected for the slice and any additional affected checks.
 - Explicit scope restrictions and prohibited actions.
 
-Ask the worker to return a concise result containing:
+Ask the worker to follow the same completion contract as direct implementation: stage only the intended slice, run its slice validation, inspect the diff, commit the verified snapshot, confirm the checkpoint, and return a concise result containing:
 
 - The implemented behavior.
 - The changed files or components.
-- The commit SHA or clearly identified uncommitted changes.
-- The verification performed and the actual results.
+- The validated starting HEAD and validated tree.
+- The checkpoint commit SHA and confirmation that the worktree is clean.
+- The actual gate results.
 - Remaining limitations or blockers.
 
-Use the session output as the default handoff. Do not require an artifact file for each worker or slice.
+If the worker cannot commit, it must return clearly identified uncommitted changes. The lead then finishes validation and commits before any later slice starts. Use the session output as the default handoff. Do not require an artifact file for each worker or slice.
 
 ### Lead responsibilities
 
@@ -141,16 +169,19 @@ After a delegated slice:
 - Inspect the actual changes rather than accepting the completion claim.
 - Confirm the slice satisfies its contract.
 - Confirm unrelated files and requirements were not changed.
-- Confirm the applicable validation results and the commit they apply to.
+- Confirm the applicable validation results apply to the returned snapshot.
+- Verify the checkpoint commit tree, starting-HEAD ancestry, and clean worktree; if the work was returned uncommitted, complete the slice validation and commit it.
 - Resolve integration issues before starting a dependent slice.
 
-After all slices, the lead remains responsible for integration correctness, complete acceptance-criteria coverage, domain and architecture consistency, the full required validation, and the handoff to independent review. Delegated implementation does not replace the fresh-context review stage.
+After all slices, the lead remains responsible for integration correctness, complete acceptance-criteria coverage, domain and architecture consistency, the full required validation on the final clean commit, and the handoff to independent review. Delegated implementation does not replace the fresh-context review stage.
 
 ## Required outputs
 
 - Commits on the issue branch.
 - Tests covering the changed behavior.
+- A verified checkpoint SHA and validated tree for each slice.
 - Verification evidence for each acceptance criterion and the commit it applies to.
+- Full validation on the final clean commit.
 - A list of unverified behavior, if any.
 - A clean or explicitly explained working tree.
 - Canonical domain terminology in code, tests, and handoff.
@@ -159,7 +190,8 @@ After all slices, the lead remains responsible for integration correctness, comp
 ## Exit criteria
 
 - Every acceptance criterion is implemented or explicitly reported as blocked.
-- The required checks pass on the final commit.
+- Each slice has a verified commit checkpoint and a clean worktree before the next slice starts.
+- The required checks pass on the final clean commit, including full validation.
 - No unauthorized suppression or gate change is present.
 - The change contains no unrelated scope.
 - Domain terminology and relationships match the issue and glossary, or the conflict is recorded.
@@ -169,6 +201,8 @@ After all slices, the lead remains responsible for integration correctness, comp
 
 - Implementing behavior that the issue does not request.
 - Treating the absence of mandatory test-driven development as permission to omit tests.
+- Treating targeted checks or an uncommitted validation result as slice-completion evidence.
+- Starting the next slice before the verified changes are committed at a confirmed checkpoint.
 - Suppressing a diagnostic, weakening a gate, or changing analyzer configuration independently.
 - Using a null-forgiving operator or a self-written comment to silence nullability analysis.
 - Adding a package, service, UI framework, or abstraction without the justification required by the coding standards.

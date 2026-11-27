@@ -11,7 +11,7 @@ Publish a reviewable change with the issue link, a Summary that shows the shape 
 - A ready issue and a branch based on current `origin/main`.
 - Review approval naming the approved implementation SHA, with blocking findings resolved.
 - The final PR head SHA and, when it differs, the complete documented delta.
-- The final validation results for the final head.
+- The verified slice checkpoints and the full validation result for the final head.
 - Canonical domain terms from [GLOSSARY.md](../../GLOSSARY.md) for the Summary and acceptance-criteria coverage.
 - The PR template at [`.github/PULL_REQUEST_TEMPLATE.md`](../../.github/PULL_REQUEST_TEMPLATE.md).
 
@@ -95,12 +95,13 @@ Include:
 - A Summary using the smallest sufficient representation.
 - Acceptance-criteria coverage, with each criterion marked satisfied, not applicable, or unverified.
 - Implementation changes at a level a reviewer can follow without repeating the Summary.
+- The verified slice checkpoints, or a concise note when a change was one cohesive slice.
 - The approved implementation commit SHA and the review decision.
 - The final PR head SHA.
 - The documentation-only delta after approval, with changed files, or "none".
 - The documentation validation result and the reason independent re-review was not required for a documentation-only delta.
 - Blocking-finding resolution, or "none".
-- Actual validation commands or CI runs and their results.
+- Actual validation commands or CI runs and their results, including full validation on the final clean commit.
 - Known limitations and behavior that was not verified.
 - The Merge Danger assessment.
 - The documentation freshness review record.
@@ -193,6 +194,7 @@ Update the body when the head changes, a check result changes, a review finding 
 - A body based on the repository template.
 - A Summary that uses the smallest sufficient representation.
 - The approved implementation commit SHA, final head SHA, and any documentation-only delta with validation.
+- Verified slice checkpoints and full validation evidence for the final clean commit.
 - Actual validation evidence and explicit unverified items.
 - A proportionate Merge Danger assessment.
 - A documentation freshness review record.
@@ -211,6 +213,7 @@ Update the body when the head changes, a check result changes, a review finding 
 ## Prohibited actions
 
 - Opening a PR without the template or with placeholder evidence.
+- Presenting a pre-commit slice result as full validation of the final commit.
 - Claiming a check passed without a matching run or command output.
 - Treating a build as proof of Windows runtime behavior.
 - Using a `.md` extension to claim a substantive change is documentation-only.

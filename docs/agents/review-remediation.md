@@ -40,7 +40,7 @@ Do not ignore a finding silently. Do not mark it resolved because a comment was 
 
 ### 3. Rerun affected verification
 
-Run the checks affected by the change, then the full required suite before sending the new head to review. Record the actual commands and results.
+Run the checks affected by the change, confirm any new slice checkpoint under the [quality-gate contract](quality-gates.md#slice-completion-validation), then run the full required suite on the final clean commit before sending the new head to review. Record the actual commands and results.
 
 ### 4. Commit and report
 

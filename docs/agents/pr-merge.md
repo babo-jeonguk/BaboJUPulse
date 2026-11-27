@@ -11,7 +11,7 @@ Merge only a reviewed, verified, mergeable change, confirm that the documentatio
 - An open PR linked to the issue.
 - The exact approved implementation SHA and review decision.
 - The final PR head SHA and, when it differs, the complete delta from the approved implementation.
-- The required CI result for the final head and the documentation validation result.
+- The required CI result for the final head, the full validation result for the final clean commit, and the documentation validation result.
 - The issue acceptance criteria, recorded limitations, and the documentation review record.
 - Access to merge the PR, delete the branch when appropriate, update the local `main` worktree, and remove or archive the workspace.
 
@@ -22,6 +22,7 @@ All of the following are true:
 - The issue's acceptance criteria are satisfied or explicitly deferred by maintainer decision.
 - Every blocking review finding is resolved.
 - Required `build` checks pass on the final head.
+- Full validation passed on the final clean commit.
 - The documentation validation workflow passes on the final head, or its unavailability is recorded together with a local documentation validation result.
 - Relevant advisory security checks have been inspected.
 - All required review conversations are resolved.
@@ -69,7 +70,7 @@ If `merge.sh inspect` reports a head mismatch, stop. The current PR head is not 
 
 ### 2. Inspect checks and security signals
 
-- `merge.sh inspect` confirms the required checks. The default set is `build` and `documentation`; add `--require-check <name>` only when another check is required. The branch-protection required check is `build`, and the merge procedure also requires the `documentation` workflow result.
+- `merge.sh inspect` confirms the required checks. The default set is `build` and `documentation`; add `--require-check <name>` only when another check is required. The branch-protection required check is `build`, and the merge procedure also requires the `documentation` workflow result. Confirm the full validation evidence applies to the final clean commit, not an earlier or pre-commit snapshot.
 - A documentation-only commit does not make the pull request documentation-only for CI purposes; the full build still runs.
 - If the `documentation` workflow did not run, record a local `scripts/workflow/validate.sh docs` result and the reason. When the workflow cannot run, pass `--allow-missing-check documentation` explicitly and record why; a missing check that actually ran and failed is never allowed, and the mandatory `build` check cannot be waived. Do not add path filters to make it disappear, and do not treat an earlier run on another commit as evidence for the final head.
 - Inspect CodeQL and dependency-review results when relevant. They are advisory unless the maintainer says otherwise, but a new security finding needs a decision before merge.

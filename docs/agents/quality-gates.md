@@ -92,7 +92,7 @@ These checks run as tests and as a dedicated `Category=RepositoryPolicy` CI step
 | Check | Detects |
 | --- | --- |
 | Source policy | `#pragma warning disable`, `#nullable disable`, `SuppressMessage`, and `UnconditionalSuppressMessage` in tracked handwritten `.cs` files; tracked generated-file suffixes and `GeneratedCode` markers are rejected |
-| Null-forgiving policy | Every postfix `!` null-forgiving operator in tracked handwritten C#; a comment is not an exception |
+| Null-forgiving policy | Every postfix `!` null-forgiving operator in tracked handwritten C#, including inactive preprocessor branches; a comment is not an exception |
 | Project policy | `NoWarn`, `WarningsNotAsErrors`, false `TreatWarningsAsErrors`/`EnableNETAnalyzers`/`RunAnalyzers*`/`CodeAnalysisTreatWarningsAsErrors`/`EnableDefaultCompileItems`, lowered `AnalysisLevel`, `AnalysisMode=None/Minimum`, disabled nullable, `Compile Remove`, `AutoGen` source exclusion, or `DefaultItemExcludes` for C# |
 | Nested configuration | Nested `.editorconfig`, `.globalconfig`, `Directory.Build.props`, or `Directory.Build.targets` overrides |
 | Banned symbols | Every active entry is required; removing or commenting out any entry fails the policy test |
@@ -107,7 +107,7 @@ The null-forgiving policy test matches the Roslyn `SuppressNullableWarningExpres
 
 The checker is a pattern-based pre-publication control, not a complete data-loss-prevention system.
 
-- It rejects concrete local-only artifact paths, common local absolute paths, file URLs, and obvious credential and private-key formats.
+- It rejects concrete local-only artifact paths, common local absolute paths (including mounted Windows user paths and WSL UNC paths), file URLs, and obvious credential and private-key formats.
 - A bare `.scratch/` convention mention is allowed because contributors need to document the local workspace. A reference to a particular artifact below it is rejected.
 - Failure output is deliberately redacted: rule identifier, safe file label, and line number only. The matching text is never printed, so a raw credential cannot leak while the checker reports it.
 - The local script is the practical pre-publication control for issue, PR, comment, and review text. Run it on the exact text before posting.

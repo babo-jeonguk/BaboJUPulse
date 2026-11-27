@@ -31,13 +31,13 @@ rule_ids=(
 # A bare `.scratch/` mention is allowed; a concrete artifact path is not.
 rule_patterns=(
     '\.scratch[\\/][A-Za-z0-9_.*?$+{}-]+'
-    '(^|[[:space:]"(<`])/(home|Users|root)/[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+'
-    '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9._-]+'
-    '(^|[[:space:]"(<`])~/[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+'
-    '\\\\wsl(\.localhost)?[$]\\[A-Za-z0-9._-]+'
+    '(^|[^A-Za-z0-9._/-])/(home|Users|root)/[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+'
+    '([A-Za-z]:[\\/]+Users|/mnt/[A-Za-z]/Users)[\\/]+[A-Za-z0-9._-]+'
+    '(^|[^A-Za-z0-9._/-])~/[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+'
+    '\\\\wsl(\$|\.localhost)[\\/][A-Za-z0-9._-]+'
     'file://'
     'gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}'
-    'sk-[A-Za-z0-9]{20,}'
+    'sk-[A-Za-z0-9-]{20,}'
     'xox[baprs]-[A-Za-z0-9-]{10,}'
     'AKIA[0-9A-Z]{16}'
     'AIza[0-9A-Za-z_-]{35}'
@@ -101,37 +101,42 @@ scan_file() {
 }
 
 scan_tracked() {
-    local found=0
-    local index
-    local code
-    local matches
-    local location
+    local combined
+    local paths
     local path
-    local line
+    local code
+    local found=0
 
-    for index in "${!rule_ids[@]}"; do
-        set +e
-        matches=$(git grep -I -n -E -- "${rule_patterns[index]}" -- . \
-            ':(exclude)scripts/check-public-content.sh' \
-            ':(exclude)scripts/test-public-content.sh' 2>/dev/null \
-            | cut -d: -f1,2)
-        code=$?
-        set -e
+    combined="$(IFS='|'; echo "${rule_patterns[*]}")"
 
+    set +e
+    paths=$(git grep -I -l -E -- "$combined" -- . \
+        ':(exclude)scripts/check-public-content.sh' \
+        ':(exclude)scripts/test-public-content.sh' 2>/dev/null \
+        | sort -u)
+    code=$?
+    set -e
+
+    if [ "$code" -eq 2 ]; then
+        echo "public-content: could not scan tracked files" >&2
+        return 2
+    fi
+
+    if [ -z "$paths" ]; then
+        return 0
+    fi
+
+    while IFS= read -r path; do
+        [ -z "$path" ] && continue
+        code=0
+        scan_file "$path" "$path" || code=$?
         if [ "$code" -eq 2 ]; then
-            echo "public-content: could not scan tracked files for rule=${rule_ids[index]}" >&2
             return 2
         fi
-
-        if [ -n "$matches" ]; then
-            while IFS= read -r location; do
-                path=${location%:*}
-                line=${location##*:}
-                report_match "${rule_ids[index]}" "$path" "$line"
-            done <<< "$matches"
+        if [ "$code" -eq 1 ]; then
             found=1
         fi
-    done
+    done <<< "$paths"
 
     if [ "$found" -eq 1 ]; then
         return 1

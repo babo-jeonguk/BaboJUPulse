@@ -42,6 +42,14 @@ public sealed class AnalyzerPolicyTests
             missing.Count == 0,
             "Banned symbols are missing or commented out:" + Environment.NewLine + string.Join(Environment.NewLine, missing));
 
+        var requiredSet = required.ToHashSet(StringComparer.Ordinal);
+        var unexpected = active.Where(symbol => !requiredSet.Contains(symbol)).ToList();
+        Assert.True(
+            unexpected.Count == 0,
+            "New banned symbols must also be added to the required list:"
+                + Environment.NewLine
+                + string.Join(Environment.NewLine, unexpected));
+
         var undocumented = activeLines
             .Where(line =>
             {

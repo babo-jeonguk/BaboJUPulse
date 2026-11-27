@@ -37,13 +37,37 @@ public sealed class SourcePolicyTests
                 public static string Accept(string? value) => value!;
                 public static bool Negate(bool value) => !value;
                 public static bool Compare(string? left, string? right) => left != right;
+            #if DEBUG
+                public static string Hidden(string? value) => value!;
+            #endif
+            }
+            """;
+
+        var failures = SourceFileScanner.FindNullForcingOperators("synthetic.cs", source);
+
+        Assert.Equal(2, failures.Count);
+        Assert.Contains(failures, failure => failure.Contains("synthetic.cs:4", StringComparison.Ordinal));
+        Assert.Contains(failures, failure => failure.Contains("synthetic.cs:8", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void NullForcingDetectionCoversNestedDisabledText()
+    {
+        const string source = """
+            internal static class Example
+            {
+            #if DEBUG
+            #if ALSO_DEBUG
+                public static string Hidden(string? value) => value!;
+            #endif
+            #endif
             }
             """;
 
         var failures = SourceFileScanner.FindNullForcingOperators("synthetic.cs", source);
 
         var failure = Assert.Single(failures);
-        Assert.Contains("synthetic.cs:4", failure, StringComparison.Ordinal);
+        Assert.Contains("synthetic.cs:5", failure, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -172,12 +196,61 @@ internal static class SourceFileScanner
 
     private static void AddNullForcing(string file, SyntaxTree tree, List<string> failures)
     {
-        foreach (var expression in tree.GetCompilationUnitRoot()
-                     .DescendantNodes()
+        var root = tree.GetCompilationUnitRoot();
+        AddNullForcingNodes(file, root, failures, lineOffset: 0);
+        AddDisabledTextNullForcing(file, root, failures, lineOffset: 0);
+    }
+
+    private static void AddDisabledTextNullForcing(
+        string file,
+        SyntaxNode root,
+        List<string> failures,
+        int lineOffset)
+    {
+        // Inactive preprocessor branches are disabled-text trivia, not nodes in the
+        // active tree. Parse each disabled region so an operator cannot hide there.
+        foreach (var trivia in root.DescendantTrivia(descendIntoTrivia: true)
+                     .Where(trivia => trivia.IsKind(SyntaxKind.DisabledTextTrivia)))
+        {
+            AddDisabledTextNullForcing(file, trivia, failures, lineOffset);
+        }
+    }
+
+    private static void AddDisabledTextNullForcing(
+        string file,
+        SyntaxTrivia trivia,
+        List<string> failures,
+        int lineOffset)
+    {
+        var text = trivia.ToString();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        var disabledTree = CSharpSyntaxTree.ParseText(
+            text,
+            new CSharpParseOptions(LanguageVersion.Latest),
+            file);
+        var disabledRoot = disabledTree.GetCompilationUnitRoot();
+        var disabledOffset = lineOffset
+            + trivia.GetLocation().GetLineSpan().StartLinePosition.Line;
+        AddNullForcingNodes(file, disabledRoot, failures, disabledOffset);
+        AddDisabledTextNullForcing(file, disabledRoot, failures, disabledOffset);
+    }
+
+    private static void AddNullForcingNodes(
+        string file,
+        SyntaxNode root,
+        List<string> failures,
+        int lineOffset)
+    {
+        foreach (var expression in root.DescendantNodes()
                      .OfType<PostfixUnaryExpressionSyntax>()
                      .Where(node => node.IsKind(SyntaxKind.SuppressNullableWarningExpression)))
         {
-            failures.Add($"{file}:{Line(expression)}: null-forgiving operator is prohibited");
+            var line = expression.GetLocation().GetLineSpan().StartLinePosition.Line + lineOffset + 1;
+            failures.Add($"{file}:{line}: null-forgiving operator is prohibited");
         }
     }
 

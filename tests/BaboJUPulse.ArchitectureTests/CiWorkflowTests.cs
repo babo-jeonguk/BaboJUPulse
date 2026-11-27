@@ -15,7 +15,17 @@ public sealed class CiWorkflowTests
         Assert.Equal("build", StringValue(build, "name"));
         Assert.Null(Child(build, "if"));
         Assert.Null(Child(build, "continue-on-error"));
-        Assert.Equal("read", StringValue(RequireMapping(root, "permissions"), "contents"));
+        var permissions = RequireMapping(root, "permissions");
+        Assert.Equal("read", StringValue(permissions, "contents"));
+        foreach (var permission in permissions.Children)
+        {
+            var name = ((YamlScalarNode)permission.Key).Value ?? "<unnamed>";
+            var value = (permission.Value as YamlScalarNode)?.Value;
+            Assert.False(
+                value?.Contains("write", StringComparison.OrdinalIgnoreCase) == true,
+                $"CI permission '{name}' must remain read-only");
+        }
+
         Assert.True(HasPullRequestTrigger(root), "CI must run on pull requests");
 
         var steps = RequireSequence(build, "steps");

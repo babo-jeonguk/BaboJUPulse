@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- Deskband11Lib.Wpf 1.5.1 ships only lib/net10.0-windows10.0.26100.
+         The product targets net10.0-windows10.0.19041.0, so this experiment cannot
+         use the product TFM while consuming the candidate package. -->
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.26100.0</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>10.0.26100.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <!-- NotifyIcon provides the tray fallback required by the experiment. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>BaboJUPulse.TaskbarIntegrationPoc</AssemblyName>
+    <RootNamespace>BaboJUPulse.TaskbarIntegrationPoc</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Deskband11Lib.Wpf" Version="1.5.1" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="TaskbarOverlayPoc.Core/TaskbarOverlayPoc.Core.csproj" />
+  <Project Path="TaskbarOverlayPoc/TaskbarOverlayPoc.csproj" />
+  <Project Path="TaskbarOverlayPoc.Tests/TaskbarOverlayPoc.Tests.csproj" />
+</Solution>
